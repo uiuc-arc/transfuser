@@ -3,6 +3,8 @@ import numpy as np
 import math
 from controller import control_pid, EgoModel
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from sat import check_collision
 
 def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed, safety_distance=1.0, time=2, fps=20):
@@ -63,7 +65,38 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
     for i, bbox in other_bboxes.items():
         print(f"Time {i/fps:.2f}s: {bbox}")
 
-    # Add visualization of bounding boxes
+    def plot_3d_bboxes(obj_boxes, color, ax, label):
+        for t, box in enumerate(obj_boxes):
+            # Add the z (time) coordinate
+            box = [box[0], box[1], box[3], box[2]]
+            box_3d = [(x, y, t/40.0) for x, y in box]
+            poly = Poly3DCollection([box_3d], alpha=0.6)
+            poly.set_facecolor(color)
+            ax.add_collection3d(poly)
+            
+            # Optionally connect the center of each box with a line
+            # center = np.mean(box_3d, axis=0)
+            # ax.scatter(*center, color=color, label=label if t == 0 else "")
+            
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    plot_3d_bboxes(list(ego_bboxes.values()), 'blue', ax, 'Ego Vehicle')
+    plot_3d_bboxes(list(other_bboxes.values()), 'red', ax, 'Other Vehicle')
+
+    ax.set_xlabel('X Coordinate')
+    ax.set_ylabel('Y Coordinate')
+    ax.set_zlabel('Time (s)')
+    ax.set_title('Bounding Boxes Over Time')
+    ax.set_xlim(-10, 10)
+    ax.set_ylim(-10, 10)
+    ax.set_zlim(0, 3)
+    ax.legend()
+    plt.grid()
+    plt.savefig('bounding_boxes_3d.png', dpi=300)
+    plt.show()
+
+    fig.clear()
+
     fig, ax = plt.subplots()
     for i in range(min((time * fps), len(ego_bboxes), len(other_bboxes))):
         ego_bbox_i = [ego_bboxes[i][0], ego_bboxes[i][1], ego_bboxes[i][3], ego_bboxes[i][2]]  # Ensure correct order
@@ -79,8 +112,8 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
     # Draw the predicted waypoints
     pred_wps = np.array(pred_wps_copy)
     ax.plot(pred_wps[:, 0], pred_wps[:, 1], marker='o', color='green', label='Predicted Waypoints')
-    ax.set_xlim(-20, 20)
-    ax.set_ylim(-20, 20)
+    ax.set_xlim(-10, 10)
+    ax.set_ylim(-10, 10)
     ax.set_aspect('equal', adjustable='box')
     ax.set_title('Bounding Boxes Over Time')
     ax.set_xlabel('X Coordinate')
@@ -88,6 +121,7 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
     # ax.legend()
     plt.grid()
     plt.savefig('bounding_boxes.png', dpi=300)
+    plt.show()
 
 
     for i in range(min((time * fps), len(ego_bboxes), len(other_bboxes))):
@@ -112,7 +146,7 @@ ego_yaw = 0.054454
 ego_speed = 3.7946761
 other_bbox = np.array([(7.773118495941162, 3.3192648887634277), (8.145111083984375, 3.299520492553711), (7.686257362365723, 1.6841745376586914), (8.058249473571777, 1.6644301414489746)])
 other_forward = np.array([-0.05287253, -0.99528052])
-other_speed = 7
+other_speed = 3
 
 is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed)
     
