@@ -113,9 +113,13 @@ class AutonomousAgent(object):
         # print('======[Agent] Wallclock_time = {} / {} / Sim_time = {} / {}x'.format(wallclock, wallclock_diff, timestamp, timestamp/(wallclock_diff+0.001)))
 
         control = self.run_step(input_data, timestamp)
+        if type(control) is tuple:
+            control, waypoints = control
+        else:
+            waypoints = []
         control.manual_gear_shift = False
 
-        return control
+        return control, waypoints
 
     def set_global_plan(self, global_plan_gps, global_plan_world_coord):
         """

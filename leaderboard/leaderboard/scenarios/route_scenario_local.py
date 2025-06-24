@@ -231,6 +231,7 @@ class RouteScenario(BasicScenario):
 
         # Sample the scenarios to be used for this route instance.
         self.sampled_scenarios_definitions = self._scenario_sampling(potential_scenarios_definitions)
+        print("Sampled scenarios definitions: {}".format(self.sampled_scenarios_definitions))
 
         # Timeout of scenario in seconds
         self.timeout = self._estimate_route_timeout()
@@ -366,6 +367,7 @@ class RouteScenario(BasicScenario):
 
         if debug_mode:
             for scenario in scenario_definitions:
+                print("Secnario configuration: {}".format(scenario))
                 loc = carla.Location(scenario['trigger_position']['x'],
                                      scenario['trigger_position']['y'],
                                      scenario['trigger_position']['z']) + carla.Location(z=2.0)
@@ -464,14 +466,14 @@ class RouteScenario(BasicScenario):
             amount = town_amount[config.town] if config.town in town_amount else 0
             amount = random.randint(amount, 2*amount)
         else:
-            amount = 500 # use all spawn points
+            amount = 2 # use all spawn points
 
-        new_actors = CarlaDataProvider.request_new_batch_actors('vehicle.*',
-                                                                amount,
-                                                                carla.Transform(),
-                                                                autopilot=True,
-                                                                random_location=True,
-                                                                rolename='background')
+        new_actors = [] # CarlaDataProvider.request_new_batch_actors('vehicle.*',
+                                                                # amount,
+                                                                # carla.Transform(),
+                                                                # autopilot=True,
+                                                                # random_location=True,
+                                                                # rolename='background')
 
         if new_actors is None:
             raise Exception("Error: Unable to add the background activity, all spawn points were occupied")

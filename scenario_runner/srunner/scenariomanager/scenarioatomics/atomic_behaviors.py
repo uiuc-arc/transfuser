@@ -1065,6 +1065,8 @@ class KeepVelocity(AtomicBehavior):
                 self._control.throttle = 1.0
             else:
                 self._control.throttle = 0.0
+            bounding_box = self._actor.bounding_box
+            # print("Bounding box: %s" % bounding_box)
         self._actor.apply_control(self._control)
 
         new_location = CarlaDataProvider.get_location(self._actor)

@@ -8,7 +8,7 @@ from geometric_fusion import GeometricFusionBackbone
 from late_fusion import LateFusionBackbone
 from latentTF import latentTFBackbone
 from copy import deepcopy
-from point_pillar import PointPillarNet
+# from point_pillar import PointPillarNet
 
 
 from PIL import Image, ImageFont, ImageDraw
@@ -680,7 +680,7 @@ class LidarCenterNet(nn.Module):
 
         steer = np.clip(steer, -1.0, 1.0) #Valid steering values are in [-1,1]
 
-        return steer, throttle, brake
+        return steer, throttle, brake, waypoints
     
     def forward_ego(self, rgb, lidar_bev, target_point, target_point_image, ego_vel, bev_points=None, cam_points=None, save_path=None, expert_waypoints=None,
                     stuck_detector=0, forced_move=False, num_points=None, rgb_back=None, debug=False):
@@ -1028,4 +1028,5 @@ class LidarCenterNet(nn.Module):
 
         images = np.concatenate((rgb_image, images), axis=0)
 
+        print("Saving debug image to %s/%d.png" % (save_path, step // 2))
         cv2.imwrite(str(save_path + ("/%d.png" % (step // 2))), images)

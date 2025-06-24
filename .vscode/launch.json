@@ -1,0 +1,46 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: TransFuser",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "program": "leaderboard/leaderboard/leaderboard_evaluator_local.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "CARLA_ROOT": "${workspaceFolder}/carla",
+                "WORK_DIR": "${workspaceFolder}",
+                "CARLA_SERVER": "${workspaceFolder}/carla/CarlaUE4.sh",
+                "PYTHONPATH": "${workspaceFolder}/carla/PythonAPI:${workspaceFolder}/carla/PythonAPI/carla:${workspaceFolder}/carla/PythonAPI/carla/dist/carla-0.9.10-py3.7-linux-x86_64.egg:${workspaceFolder}/scenario_runner:${workspaceFolder}/leaderboard",
+                "SCENARIO_RUNNER_ROOT": "${workspaceFolder}/scenario_runner",
+                "LEADERBOARD_ROOT": "${workspaceFolder}/leaderboard",
+                "SCENARIOS": "${workspaceFolder}/leaderboard/data/training/scenarios/Scenario4/Town01_Scenario4.json",
+                "ROUTES": "${workspaceFolder}/leaderboard/data/training/routes/Scenario4/Town01_Scenario4.xml",
+                "REPETITIONS": "1",
+                "CHALLENGE_TRACK_CODENAME": "SENSORS",
+                "CHECKPOINT_ENDPOINT": "${workspaceFolder}/results/transfuser_longest6.json",
+                "TEAM_AGENT": "${workspaceFolder}/team_code_transfuser/submission_agent.py",
+                "TEAM_CONFIG": "${workspaceFolder}/model_ckpt/models_2022/latentTF",
+                "DEBUG_CHALLENGE": "0",
+                "RESUME": "0",
+                "DATAGEN": "0",
+                "SAVE_PATH": "logs",
+            },
+            "args": [
+                "--scenarios=leaderboard/data/training/scenarios/Scenario4/Town01_Scenario4.json",
+                "--routes=leaderboard/data/training/routes/Scenario4/Town01_Scenario4.xml",
+                "--repetitions=1",
+                "--track=SENSORS",
+                "--checkpoint=results/transfuser_longest6.json",
+                "--agent=team_code_transfuser/submission_agent.py",
+                "--agent-config=model_ckpt/latentTF",
+                "--debug=10",
+            ]
+        }
+    ]
+}

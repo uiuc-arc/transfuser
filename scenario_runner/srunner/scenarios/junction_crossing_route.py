@@ -70,7 +70,7 @@ class SignalJunctionCrossingRoute(BasicScenario):
         """
 
         # Changes traffic lights
-        traffic_hack = TrafficLightManipulator(self.ego_vehicles[0], self.subtype)
+        traffic_hack = TrafficLightManipulator(self.ego_vehicles[0], self.subtype, debug=True)
 
         # finally wait that ego vehicle drove a specific distance
         wait = DriveDistance(

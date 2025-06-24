@@ -455,8 +455,9 @@ class VehicleTurningRoute(BasicScenario):
         """
         Setup all relevant parameters and create scenario
         """
+        print("VehicleTurningRoute: Using route configuration")
 
-        self._other_actor_target_velocity = 10
+        self._other_actor_target_velocity = 7
         self._wmap = CarlaDataProvider.get_map()
         self._reference_waypoint = self._wmap.get_waypoint(config.trigger_points[0].location)
         self._trigger_location = config.trigger_points[0].location
@@ -482,6 +483,7 @@ class VehicleTurningRoute(BasicScenario):
         """
         Custom initialization
         """
+        print("VehicleTurningRoute: Initializing actors")
 
         # Get the waypoint right after the junction
         waypoint = generate_target_waypoint_in_route(self._reference_waypoint, self._ego_route)
@@ -533,6 +535,7 @@ class VehicleTurningRoute(BasicScenario):
         continue driving after the road is clear.If this does not happen
         within 90 seconds, a timeout stops the scenario.
         """
+        print("VehicleTurningRoute: Creating behavior tree")
 
         root = py_trees.composites.Parallel(
             policy=py_trees.common.ParallelPolicy.SUCCESS_ON_ONE, name="IntersectionRouteTurn")

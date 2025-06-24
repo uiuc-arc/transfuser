@@ -738,6 +738,7 @@ class InTriggerDistanceToLocationAlongRoute(AtomicCondition):
         self._location_distance, _ = get_distance_along_route(self._route, self._location)
 
     def update(self):
+        print("InTriggerDistanceToLocationAlongRoute.update()")
         new_status = py_trees.common.Status.RUNNING
 
         current_location = CarlaDataProvider.get_location(self._actor)
@@ -857,6 +858,7 @@ class InTimeToArrivalToVehicle(AtomicCondition):
         """
         Check if the ego vehicle can arrive at other actor within time
         """
+        print("InTimeToArrivalToVehicle.update()")
         new_status = py_trees.common.Status.RUNNING
 
         current_location = CarlaDataProvider.get_location(self._actor)
@@ -1070,6 +1072,9 @@ class DriveDistance(AtomicCondition):
         """
         Check driven distance
         """
+        if hasattr(self._actor, 'bounding_box'):
+            bounding_box = self._actor.bounding_box
+            # print("Bounding box: %s" % bounding_box)
         new_status = py_trees.common.Status.RUNNING
 
         new_location = CarlaDataProvider.get_location(self._actor)

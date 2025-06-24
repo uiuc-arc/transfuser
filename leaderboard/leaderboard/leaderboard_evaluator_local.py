@@ -34,6 +34,7 @@ from leaderboard.envs.sensor_interface import SensorConfigurationInvalid
 from leaderboard.autoagents.agent_wrapper_local import  AgentWrapper, AgentError
 from leaderboard.utils.statistics_manager_local import StatisticsManager
 from leaderboard.utils.route_indexer import RouteIndexer
+import pdb
 
 
 sensors_to_icons = {
@@ -315,6 +316,7 @@ class LeaderboardEvaluator(object):
             self._load_and_wait_for_world(args, config.town, config.ego_vehicles)
             self._prepare_ego_vehicles(config.ego_vehicles, False)
             scenario = RouteScenario(world=self.world, config=config, debug_mode=args.debug)
+            # breakpoint()
             self.statistics_manager.set_scenario(scenario.scenario)
 
             # Night mode
@@ -395,6 +397,7 @@ class LeaderboardEvaluator(object):
         Run the challenge mode
         """
         route_indexer = RouteIndexer(args.routes, args.scenarios, args.repetitions)
+        # breakpoint()
 
         if args.resume:
             route_indexer.resume(args.checkpoint)
@@ -402,20 +405,25 @@ class LeaderboardEvaluator(object):
         else:
             self.statistics_manager.clear_record(args.checkpoint)
             route_indexer.save_state(args.checkpoint)
-
+        # breakpoint()
         while route_indexer.peek():
             # setup
             config = route_indexer.next()
 
             # run
+            # pdb.set_trace() 
+            # breakpoint()
             self._load_and_run_scenario(args, config)
 
             route_indexer.save_state(args.checkpoint)
 
         # save global statistics
         print("\033[1m> Registering the global statistics\033[0m")
+        print("Before stats")
         global_stats_record = self.statistics_manager.compute_global_statistics(route_indexer.total)
+        print("After stats")
         StatisticsManager.save_global_record(global_stats_record, self.sensor_icons, route_indexer.total, args.checkpoint)
+        print("Saved statistics to {}".format(args.checkpoint))
 
 
 def main():
@@ -423,14 +431,14 @@ def main():
 
     # general parameters
     parser = argparse.ArgumentParser(description=description, formatter_class=RawTextHelpFormatter)
-    parser.add_argument('--host', default='localhost',
-                        help='IP of the host server (default: localhost)')
+    parser.add_argument('--host', default='pelikan.cs.illinois.edu',
+                        help='IP of the host server (default: pelikan.cs.illinois.edu)')
     parser.add_argument('--port', default='2000', help='TCP port to listen to (default: 2000)')
-    parser.add_argument('--trafficManagerPort', default='8000',
-                        help='Port to use for the TrafficManager (default: 8000)')
+    parser.add_argument('--trafficManagerPort', default='2015',
+                        help='Port to use for the TrafficManager (default: 2010)')
     parser.add_argument('--trafficManagerSeed', default='0',
                         help='Seed used by the TrafficManager (default: 0)')
-    parser.add_argument('--debug', type=int, help='Run with debug output', default=0)
+    parser.add_argument('--debug', type=int, help='Run with debug output', default=10)
     parser.add_argument('--record', type=str, default='',
                         help='Use CARLA recording feature to create a recording of the scenario')
     parser.add_argument('--timeout', default="60.0",

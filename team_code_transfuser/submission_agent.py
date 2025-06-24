@@ -27,6 +27,10 @@ if not SAVE_PATH:
 else:
     pathlib.Path(SAVE_PATH).mkdir(parents=True, exist_ok=True)
 
+original_rgb_log = SAVE_PATH + '/original_rgb'
+if not os.path.exists(original_rgb_log):
+    os.makedirs(original_rgb_log)
+
 def get_entry_point():
     return 'HybridAgent'
 
@@ -183,16 +187,21 @@ class HybridAgent(autonomous_agent.AutonomousAgent):
 
     def tick(self, input_data):
         rgb = []
+        rgb_original = []
         for pos in ['left', 'front', 'right']:
             rgb_cam = 'rgb_' + pos
             rgb_pos = cv2.cvtColor(input_data[rgb_cam][1][:, :, :3], cv2.COLOR_BGR2RGB)
+            rgb_original.append(rgb_pos)
             rgb_pos = self.scale_crop(Image.fromarray(rgb_pos), self.config.scale, self.config.img_width, self.config.img_width, self.config.img_resolution[0], self.config.img_resolution[0])
             rgb.append(rgb_pos)
         rgb = np.concatenate(rgb, axis=1)
+        rgb_original = np.concatenate(rgb_original, axis=1)
 
         if(SAVE_PATH != None): #Debug camera for visualizations
             # don't need buffer for it always use the latest one
             self.rgb_back = input_data["rgb_back"][1][:, :, :3]
+            rgb_original = cv2.cvtColor(rgb_original, cv2.COLOR_BGR2RGB)
+            cv2.imwrite(original_rgb_log + '/step_' + str(self.step) + '.png', rgb_original)
 
         gps = input_data['gps'][1][:2]
         speed = input_data['speed'][1]['speed']
@@ -292,6 +301,7 @@ class HybridAgent(autonomous_agent.AutonomousAgent):
             pred_wps = []
             bounding_boxes = []
             for i in range(self.model_count):
+                print("Running model: ", i)
                 rotated_bb = []
                 if (self.backbone == 'transFuser'):
                     pred_wp, _ = self.nets[i].forward_ego(image, lidar_bev, target_point, target_point_image, velocity,
@@ -311,7 +321,10 @@ class HybridAgent(autonomous_agent.AutonomousAgent):
                     cam_points = cam_points[0].long().to('cuda', dtype=torch.int64)
                     pred_wp, _ = self.nets[i].forward_ego(image, lidar_bev, target_point, target_point_image, velocity, bev_points, cam_points, num_points=num_points)
                 elif (self.backbone == 'latentTF'):
-                    pred_wp, rotated_bb = self.nets[i].forward_ego(image, lidar_bev, target_point, target_point_image, velocity, num_points=num_points)
+                    pred_wp, rotated_bb = self.nets[i].forward_ego(image, lidar_bev, target_point, target_point_image, velocity, num_points=num_points
+                                                                   , save_path=SAVE_PATH, stuck_detector=self.stuck_detector,
+                                                          forced_move=is_stuck, debug=self.config.debug, rgb_back=self.rgb_back
+                                                          )
                 else:
                     raise ("The chosen vision backbone does not exist. The options are: transFuser, late_fusion, geometric_fusion, latentTF")
 
@@ -359,7 +372,7 @@ class HybridAgent(autonomous_agent.AutonomousAgent):
             safety_box      = safety_box[safety_box[..., 0] > self.config.safety_box_x_min]
             safety_box      = safety_box[safety_box[..., 0] < self.config.safety_box_x_max]
 
-        steer, throttle, brake = self.nets[0].control_pid(self.pred_wp, gt_velocity, is_stuck)
+        steer, throttle, brake, wps = self.nets[0].control_pid(self.pred_wp, gt_velocity, is_stuck)
         
         if is_stuck and self.forced_move==1: # no steer for initial frame when unblocking
             steer = 0.0
@@ -391,7 +404,7 @@ class HybridAgent(autonomous_agent.AutonomousAgent):
         self.control = control
 
         self.update_gps_buffer(self.control, tick_data['compass'], tick_data['speed'])
-        return control
+        return control, wps
 
     def bb_detected_in_front_of_vehicle(self, ego_speed):
         if (len(self.bb_buffer) < 1):  # We only start after we have 4 time steps.

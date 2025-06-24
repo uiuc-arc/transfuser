@@ -17,6 +17,8 @@ import time
 
 import py_trees
 import carla
+import numpy as np
+import math
 
 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 from srunner.scenariomanager.timer import GameTime
@@ -26,6 +28,51 @@ from leaderboard.autoagents.agent_wrapper_local import AgentWrapper, AgentError
 from leaderboard.envs.sensor_interface import SensorReceivedNoData
 from leaderboard.utils.result_writer import ResultOutputProvider
 
+def get_rotation_matrix(roll, pitch, yaw):
+    """
+    Get rotation matrix from roll, pitch, yaw angles (in degrees)
+    CARLA uses the convention: Z-Y-X (yaw-pitch-roll)
+    """
+    # Convert to radians
+    roll_rad = math.radians(roll)
+    pitch_rad = math.radians(pitch) 
+    yaw_rad = math.radians(yaw)
+    
+    # Rotation matrices for each axis
+    R_x = np.array([[1, 0, 0],
+                    [0, math.cos(roll_rad), -math.sin(roll_rad)],
+                    [0, math.sin(roll_rad), math.cos(roll_rad)]])
+    
+    R_y = np.array([[math.cos(pitch_rad), 0, math.sin(pitch_rad)],
+                    [0, 1, 0],
+                    [-math.sin(pitch_rad), 0, math.cos(pitch_rad)]])
+    
+    R_z = np.array([[math.cos(yaw_rad), -math.sin(yaw_rad), 0],
+                    [math.sin(yaw_rad), math.cos(yaw_rad), 0],
+                    [0, 0, 1]])
+    
+    # Combined rotation matrix (Z * Y * X)
+    rotation_matrix = R_z @ R_y @ R_x
+    return rotation_matrix
+
+
+def get_roll_pitch_yaw_from_matrix(matrix):
+    """
+    Extract roll, pitch, yaw angles from a rotation matrix.
+    From the CARLA source code: (c is cos, s is sin, y is yaw, p is pitch, r is roll)
+      std::array<float, 16> transform = {
+          cp * cy, cy * sp * sr - sy * cr, -cy * sp * cr - sy * sr, location.x,
+          cp * sy, sy * sp * sr + cy * cr, -sy * sp * cr + cy * sr, location.y,
+          sp, -cp * sr, cp * cr, location.z,
+          0.0, 0.0, 0.0, 1.0};
+    """
+    pitch = math.asin(matrix[2, 0])
+    cos_pitch_sign = np.sign(math.cos(pitch))
+    roll = math.atan2(
+        -matrix[2, 1] * cos_pitch_sign, matrix[2, 2] * cos_pitch_sign)
+    yaw = math.atan2(
+        matrix[1, 0] * cos_pitch_sign, matrix[0, 0] * cos_pitch_sign)
+    return math.degrees(roll), math.degrees(pitch), math.degrees(yaw)
 
 class ScenarioManager(object):
 
@@ -149,7 +196,7 @@ class ScenarioManager(object):
             CarlaDataProvider.on_carla_tick()
 
             try:
-                ego_action = self._agent()
+                ego_action, waypoints = self._agent()
 
             # Special exception inside the agent that isn't caused by the agent
             except SensorReceivedNoData as e:
@@ -157,7 +204,78 @@ class ScenarioManager(object):
 
             except Exception as e:
                 raise AgentError(e)
+            # 
+            # Perception contract
+            # 
+            def unique(list):
+                """
+                Remove duplicates from a list while preserving order.
+                """
+                seen = set()
+                return [x for x in list if not (x in seen or seen.add(x))]
+            
+            ego_transform = self.ego_vehicles[0].get_transform()
+            # ego_matrix = ego_transform.get_matrix()
+            # r1, p1, y1 = get_roll_pitch_yaw_from_matrix(np.array(ego_matrix))
+            # print("Ego rotation: (roll, pitch, yaw): ", ego_transform.rotation.roll, 
+            #       ego_transform.rotation.pitch, ego_transform.rotation.yaw)
+            # print("Ego rotation (roll, pitch, yaw): ", r1, p1, y1)
+            ego_matrix_inv = ego_transform.get_inverse_matrix()
 
+
+
+            origin_transform = carla.Transform(carla.Location(), carla.Rotation())
+            ego_bbox_origin = self.ego_vehicles[0].bounding_box.get_world_vertices(origin_transform)
+            ego_bbox_origin = [(vertex.x, vertex.y) for vertex in ego_bbox_origin]
+            ego_bbox_origin = unique(ego_bbox_origin)
+            print("Ego bounding box: ", ego_bbox_origin)
+            print("------------------------------------------------")
+            
+
+            if self.other_actors[0].is_alive and hasattr(self.other_actors[0], 'bounding_box'):
+                non_ego_matrix = self.other_actors[0].get_transform().get_matrix()
+                relative_matrix = np.dot(ego_matrix_inv, non_ego_matrix)
+                roll, pitch, yaw = get_roll_pitch_yaw_from_matrix(relative_matrix)
+                new_transform = carla.Transform(
+                    carla.Location(
+                        x=relative_matrix[0, 3],
+                        y=relative_matrix[1, 3],
+                        z=relative_matrix[2, 3]
+                    ),
+                    carla.Rotation(roll=roll, pitch=pitch, yaw=yaw)
+                )
+
+                non_ego_transform = self.other_actors[0].get_transform()
+                vector_diff = non_ego_transform.location - ego_transform.location
+                diff_transform = carla.Transform(vector_diff, carla.Rotation())
+                # print("Other actor transform: ", non_ego_transform)
+                bbox = self.other_actors[0].bounding_box.get_world_vertices(new_transform)
+                bbox = [(vertex.x, vertex.y) for vertex in bbox]
+                bbox = unique(bbox)
+                print("Bicycle bounding box: ", bbox)
+                print("------------------------------------------------")
+            print("Waypoints: ", waypoints)
+            print("------------------------------------------------")
+            other_forward = self.other_actors[0].get_transform().get_forward_vector()
+            other_forward = np.array([other_forward.x, other_forward.y, other_forward.z])
+            ego_rotation_matrix_inv = np.array(ego_matrix_inv)[:3, :3]
+            other_forward = np.dot(ego_rotation_matrix_inv, other_forward)
+            print("Other forward vector before normalization: ", other_forward)
+            other_forward = np.array(other_forward[0:2])
+            print("Other forward vector: ", other_forward)
+            print("-------------------------------------------------")
+            ego_forward = self.ego_vehicles[0].get_transform().get_forward_vector()
+            ego_forward = np.array([ego_forward.x, ego_forward.y, ego_forward.z])
+            print("Ego forward vector: ", ego_forward)
+            print("-------------------------------------------------")
+            ego_yaw = self.ego_vehicles[0].get_transform().rotation.yaw
+            ego_yaw = np.deg2rad(ego_yaw)  # Convert to radians and adjust for CARLA's coordinate system
+            print("Ego yaw in radians: ", ego_yaw)
+            print("-------------------------------------------------")
+            ego_speed = self.ego_vehicles[0].get_velocity()
+            ego_speed = np.sqrt(ego_speed.x**2 + ego_speed.y**2)
+            print("Ego speed: ", ego_speed)
+            print("=================================================")
             self.ego_vehicles[0].apply_control(ego_action)
 
             # Tick scenario
