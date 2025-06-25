@@ -28,6 +28,8 @@ from leaderboard.autoagents.agent_wrapper_local import AgentWrapper, AgentError
 from leaderboard.envs.sensor_interface import SensorReceivedNoData
 from leaderboard.utils.result_writer import ResultOutputProvider
 
+from leaderboard.scenarios.perception_contract.safety import is_wp_safe
+
 def get_rotation_matrix(roll, pitch, yaw):
     """
     Get rotation matrix from roll, pitch, yaw angles (in degrees)
@@ -73,6 +75,43 @@ def get_roll_pitch_yaw_from_matrix(matrix):
     yaw = math.atan2(
         matrix[1, 0] * cos_pitch_sign, matrix[0, 0] * cos_pitch_sign)
     return math.degrees(roll), math.degrees(pitch), math.degrees(yaw)
+
+def get_yaw(vehicle_current_transform, map):
+    """
+    Get the yaw angle of a vehicle along a route (in radians).
+    The yaw angle is the angle between the vehicle's forward 
+    vector and the route's tangent vector.
+    """
+    vehicle_current_forward = vehicle_current_transform.get_forward_vector()
+    vehicle_current_forward = np.array(
+        [vehicle_current_forward.x, vehicle_current_forward.y, 0]
+    )
+
+    nearest_waypoint = map.get_waypoint(vehicle_current_transform.location)
+    waypoint_forward = nearest_waypoint.transform.get_forward_vector()
+    waypoint_forward = np.array([waypoint_forward.x, waypoint_forward.y, 0])
+
+    # get angle between the vehicle's forward vector and the waypoint's forward vector
+    dot_product = np.dot(
+        vehicle_current_forward,
+        waypoint_forward,
+    )
+    linalg_ = np.linalg.norm(vehicle_current_forward) * np.linalg.norm(
+        waypoint_forward
+    )
+    if linalg_ == 0:
+        __dot = 1
+    else:
+        __dot = np.clip(dot_product / linalg_, -1.0, 1.0)
+    theta = np.arccos(__dot)
+    __cross = np.cross(
+        vehicle_current_forward,
+        waypoint_forward,
+    )
+    if __cross[2] < 0:
+        theta *= -1.0
+    return theta
+
 
 class ScenarioManager(object):
 
@@ -125,6 +164,7 @@ class ScenarioManager(object):
         # Register the scenario tick as callback for the CARLA world
         # Use the callback_id inside the signal handler to allow external interrupts
         signal.signal(signal.SIGINT, self.signal_handler)
+        self.dataset = np.array(["waypoints", "bbox", "yaw", "speed", "other_bbox", "other_forward", "safety_check"])
 
     def signal_handler(self, signum, frame):
         """
@@ -215,21 +255,14 @@ class ScenarioManager(object):
                 return [x for x in list if not (x in seen or seen.add(x))]
             
             ego_transform = self.ego_vehicles[0].get_transform()
-            # ego_matrix = ego_transform.get_matrix()
-            # r1, p1, y1 = get_roll_pitch_yaw_from_matrix(np.array(ego_matrix))
-            # print("Ego rotation: (roll, pitch, yaw): ", ego_transform.rotation.roll, 
-            #       ego_transform.rotation.pitch, ego_transform.rotation.yaw)
-            # print("Ego rotation (roll, pitch, yaw): ", r1, p1, y1)
             ego_matrix_inv = ego_transform.get_inverse_matrix()
-
-
 
             origin_transform = carla.Transform(carla.Location(), carla.Rotation())
             ego_bbox_origin = self.ego_vehicles[0].bounding_box.get_world_vertices(origin_transform)
             ego_bbox_origin = [(vertex.x, vertex.y) for vertex in ego_bbox_origin]
             ego_bbox_origin = unique(ego_bbox_origin)
-            print("Ego bounding box: ", ego_bbox_origin)
-            print("------------------------------------------------")
+            # print("Ego bounding box: ", ego_bbox_origin)
+            # print("------------------------------------------------")
             
 
             if self.other_actors[0].is_alive and hasattr(self.other_actors[0], 'bounding_box'):
@@ -245,37 +278,32 @@ class ScenarioManager(object):
                     carla.Rotation(roll=roll, pitch=pitch, yaw=yaw)
                 )
 
-                non_ego_transform = self.other_actors[0].get_transform()
-                vector_diff = non_ego_transform.location - ego_transform.location
-                diff_transform = carla.Transform(vector_diff, carla.Rotation())
-                # print("Other actor transform: ", non_ego_transform)
                 bbox = self.other_actors[0].bounding_box.get_world_vertices(new_transform)
                 bbox = [(vertex.x, vertex.y) for vertex in bbox]
                 bbox = unique(bbox)
-                print("Bicycle bounding box: ", bbox)
-                print("------------------------------------------------")
-            print("Waypoints: ", waypoints)
-            print("------------------------------------------------")
-            other_forward = self.other_actors[0].get_transform().get_forward_vector()
-            other_forward = np.array([other_forward.x, other_forward.y, other_forward.z])
-            ego_rotation_matrix_inv = np.array(ego_matrix_inv)[:3, :3]
-            other_forward = np.dot(ego_rotation_matrix_inv, other_forward)
-            print("Other forward vector before normalization: ", other_forward)
-            other_forward = np.array(other_forward[0:2])
-            print("Other forward vector: ", other_forward)
-            print("-------------------------------------------------")
-            ego_forward = self.ego_vehicles[0].get_transform().get_forward_vector()
-            ego_forward = np.array([ego_forward.x, ego_forward.y, ego_forward.z])
-            print("Ego forward vector: ", ego_forward)
-            print("-------------------------------------------------")
-            ego_yaw = self.ego_vehicles[0].get_transform().rotation.yaw
-            ego_yaw = np.deg2rad(ego_yaw)  # Convert to radians and adjust for CARLA's coordinate system
-            print("Ego yaw in radians: ", ego_yaw)
-            print("-------------------------------------------------")
-            ego_speed = self.ego_vehicles[0].get_velocity()
-            ego_speed = np.sqrt(ego_speed.x**2 + ego_speed.y**2)
-            print("Ego speed: ", ego_speed)
-            print("=================================================")
+
+                other_forward = self.other_actors[0].get_transform().get_forward_vector()
+                other_forward = np.array([other_forward.x, other_forward.y, other_forward.z])
+                ego_rotation_matrix_inv = np.array(ego_matrix_inv)[:3, :3]
+                other_forward = np.dot(ego_rotation_matrix_inv, other_forward)
+                other_forward = np.array(other_forward[0:2])
+
+                ego_yaw = self.ego_vehicles[0].get_transform().rotation.yaw
+                ego_yaw = get_yaw(self.ego_vehicles[0].get_transform(), CarlaDataProvider.get_map())
+                ego_speed = self.ego_vehicles[0].get_velocity()
+                ego_speed = np.sqrt(ego_speed.x**2 + ego_speed.y**2)
+                non_ego_speed = 3
+                if len(waypoints) > 0:
+                    safety_check = is_wp_safe(
+                        waypoints, ego_bbox_origin, ego_yaw, ego_speed,
+                        bbox, other_forward, non_ego_speed, safety_distance=1.0, time=2, fps=20)
+                    datapoint =  np.array([
+                        waypoints, ego_bbox_origin, ego_yaw, ego_speed,
+                        bbox, other_forward, safety_check
+                    ])
+                    self.dataset = np.vstack((self.dataset, datapoint))
+                    print("Safety check result: ", safety_check)
+                print("=================================================")
             self.ego_vehicles[0].apply_control(ego_action)
 
             # Tick scenario
@@ -321,6 +349,9 @@ class ScenarioManager(object):
 
         self.scenario_duration_system = self.end_system_time - self.start_system_time
         self.scenario_duration_game = self.end_game_time - self.start_game_time
+
+        with open('dataset.npy', 'wb') as f:
+            np.save(f, self.dataset)
 
         if self.get_running_status():
             if self.scenario is not None:
