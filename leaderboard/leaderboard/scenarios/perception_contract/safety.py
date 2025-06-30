@@ -6,13 +6,14 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from leaderboard.scenarios.perception_contract.sat import check_collision
+import scipy.spatial as sp
 
 
-def plot_3d_bboxes(obj_boxes, color, ax, label):
+def plot_3d_bboxes(obj_boxes, color, ax, label, fps=20.0):
     for t, box in enumerate(obj_boxes):
         # Add the z (time) coordinate
         box = [box[0], box[1], box[3], box[2]]
-        box_3d = [(x, y, t/40.0) for x, y in box]
+        box_3d = [(x, y, t/fps) for x, y in box]
         poly = Poly3DCollection([box_3d], alpha=0.6)
         poly.set_facecolor(color)
         ax.add_collection3d(poly)
@@ -31,7 +32,7 @@ def is_wp_safe_range(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_f
     max_speed = is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed_max, safety_distance, time, fps, debug)
     return min_speed and max_speed
 
-def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed, safety_distance=1.0, time=2, fps=20, debug=False):
+def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed, safety_distance=1.0, time=2, fps=100, debug=False):
     """
     Check if the predicted waypoints are safe from other vehicles.
 
@@ -59,7 +60,7 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
 
     ego_bboxes = {}
     current_locs = np.array([0.0, 0.0])  # Ego vehicle starts at the origin
-    ego_model = EgoModel()
+    ego_model = EgoModel(dt=1./fps)
     for i in range(time * fps):
         # Remove waypoints that are behind the ego vehicle (already passed)
         if pred_wps[0][0] <= current_locs[0] and pred_wps[0][1] <= current_locs[1]:
@@ -77,11 +78,16 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
             print(f"Time {i/fps:.2f}s: New locations: {new_locs}, New yaw: {new_yaw}, New speed: {new_speed}")
         diff_vector = np.array(new_locs)
         ego_bboxes[i] = [
-            (vertex[0] + diff_vector[0], vertex[1] + diff_vector[1]) for vertex in ego_bbox
+            [vertex[0] + diff_vector[0], vertex[1] + diff_vector[1]] for vertex in ego_bbox
         ]
         current_locs = new_locs
         ego_yaw = new_yaw
         ego_speed = new_speed
+
+    ego_xy = []
+    for bbox in ego_bboxes.values():
+        ego_xy.extend(bbox)
+    convex_hull = sp.ConvexHull(ego_xy)
 
     if debug:
         print("Ego BBoxes:")
@@ -93,8 +99,8 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
             
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
-        plot_3d_bboxes(list(ego_bboxes.values()), 'blue', ax, 'Ego Vehicle')
-        plot_3d_bboxes(list(other_bboxes.values()), 'red', ax, 'Other Vehicle')
+        plot_3d_bboxes(list(ego_bboxes.values()), 'blue', ax, 'Ego Vehicle', fps)
+        plot_3d_bboxes(list(other_bboxes.values()), 'red', ax, 'Other Vehicle', fps)
 
         ax.set_xlabel('X Coordinate')
         ax.set_ylabel('Y Coordinate')
@@ -136,6 +142,35 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
         plt.savefig('bounding_boxes.png', dpi=300)
         plt.show()
 
+        fig.clear()
+
+        # Plot the convex hull and indicate the points
+        fig, ax = plt.subplots()
+        hull_points = np.array([ego_xy[i] for i in convex_hull.vertices])
+        hull_polygon = plt.Polygon(hull_points, fill=None, edgecolor='purple', linewidth=1, label='Convex Hull')
+        ax.add_patch(hull_polygon)
+        # Plot the convex hull vertices
+        ax.plot(hull_points[:, 0], hull_points[:, 1], 'o', color='purple', markersize=3, label='Convex Hull Vertices')
+        # Draw the predicted waypoints
+        # pred_wps = np.array(pred_wps_copy)
+        # ax.plot(pred_wps[:, 0], pred_wps[:, 1], marker='o', color='green', label='Predicted Waypoints')
+        # Plot ego bounding boxes
+        # for i in range(min((time * fps), len(ego_bboxes))):
+        #     ego_bbox_i = [ego_bboxes[i][0], ego_bboxes[i][1], ego_bboxes[i][3], ego_bboxes[i][2]]  # Ensure correct order
+        #     ego_polygon = plt.Polygon(ego_bbox_i, fill=None, edgecolor='blue', linewidth=1, label='Ego Vehicle' if i == 0 else "")
+        #     ax.add_patch(ego_polygon)
+        ax.set_xlim(-15, 15)
+        ax.set_ylim(15, -15)
+        ax.set_aspect('equal', adjustable='box')
+        ax.set_title('Convex Hull of Ego Bounding Boxes')
+        ax.set_xlabel('X Coordinate')
+        ax.set_ylabel('Y Coordinate')
+        ax.legend()
+        plt.grid()
+        plt.savefig('convex_hull.png', dpi=300)
+        plt.show()
+
+
 
     for i in range(min((time * fps), len(ego_bboxes), len(other_bboxes))):
         ego_bbox_i = ego_bboxes[i]
@@ -145,6 +180,10 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
         if check_collision(ego_bbox_i, other_bbox_i):
             print(f"Collision detected at time {i/fps:.2f}s")
             return False
+
+
+    if debug:
+        print("Convex Hull Vertices:", convex_hull.vertices)
 
     print("No collisions detected.")
     return True
@@ -159,8 +198,8 @@ ego_yaw = 0.054454
 ego_speed = 3.7946761
 other_bbox = np.array([(7.773118495941162, 3.3192648887634277), (8.145111083984375, 3.299520492553711), (7.686257362365723, 1.6841745376586914), (8.058249473571777, 1.6644301414489746)])
 other_forward = np.array([-0.05287253, -0.99528052])
-other_speed = 15
+other_speed = 7
 
-is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed)
+is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed, debug=True)
     
 

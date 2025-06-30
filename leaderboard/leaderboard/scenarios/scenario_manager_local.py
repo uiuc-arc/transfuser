@@ -164,7 +164,7 @@ class ScenarioManager(object):
         # Register the scenario tick as callback for the CARLA world
         # Use the callback_id inside the signal handler to allow external interrupts
         signal.signal(signal.SIGINT, self.signal_handler)
-        self.dataset = np.array(["waypoints", "bbox", "yaw", "speed", "other_bbox", "other_forward", "safety_check"])
+        self.dataset = np.array(["waypoints", "non_ego_bbox", "safety_check"])
 
     def signal_handler(self, signum, frame):
         """
@@ -298,8 +298,7 @@ class ScenarioManager(object):
                         waypoints, ego_bbox_origin, ego_yaw, ego_speed,
                         bbox, other_forward, non_ego_speed, safety_distance=1.0, time=2, fps=20)
                     datapoint =  np.array([
-                        waypoints, ego_bbox_origin, ego_yaw, ego_speed,
-                        bbox, other_forward, safety_check
+                        waypoints, bbox, safety_check
                     ])
                     self.dataset = np.vstack((self.dataset, datapoint))
                     print("Safety check result: ", safety_check)
