@@ -263,7 +263,7 @@ class ScenarioManager(object):
             ego_bbox_origin = unique(ego_bbox_origin)
             # print("Ego bounding box: ", ego_bbox_origin)
             # print("------------------------------------------------")
-            
+
 
             if self.other_actors[0].is_alive and hasattr(self.other_actors[0], 'bounding_box'):
                 non_ego_matrix = self.other_actors[0].get_transform().get_matrix()
@@ -288,19 +288,20 @@ class ScenarioManager(object):
                 other_forward = np.dot(ego_rotation_matrix_inv, other_forward)
                 other_forward = np.array(other_forward[0:2])
 
-                ego_yaw = self.ego_vehicles[0].get_transform().rotation.yaw
-                ego_yaw = get_yaw(self.ego_vehicles[0].get_transform(), CarlaDataProvider.get_map())
+                # ego_yaw = self.ego_vehicles[0].get_transform().rotation.yaw
+                # ego_yaw = get_yaw(self.ego_vehicles[0].get_transform(), CarlaDataProvider.get_map())
                 ego_speed = self.ego_vehicles[0].get_velocity()
                 ego_speed = np.sqrt(ego_speed.x**2 + ego_speed.y**2)
                 non_ego_speed = 3
                 if len(waypoints) > 0:
-                    safety_check = is_wp_safe(
-                        waypoints, ego_bbox_origin, ego_yaw, ego_speed,
-                        bbox, other_forward, non_ego_speed, safety_distance=1.0, time=2, fps=20)
+                    safety_check, ego_bboxes = is_wp_safe(
+                        waypoints, ego_bbox_origin, ego_speed,
+                        bbox, other_forward, non_ego_speed, time=2, fps=20)
                     datapoint =  np.array([
-                        waypoints, bbox, safety_check
+                        timestamp.elapsed_seconds, ego_bboxes, safety_check
                     ])
                     self.dataset = np.vstack((self.dataset, datapoint))
+                    print("Dataset shape: ", self.dataset.shape)
                     print("Safety check result: ", safety_check)
                 print("=================================================")
             self.ego_vehicles[0].apply_control(ego_action)
@@ -348,6 +349,13 @@ class ScenarioManager(object):
 
         self.scenario_duration_system = self.end_system_time - self.start_system_time
         self.scenario_duration_game = self.end_game_time - self.start_game_time
+
+        current_dataset = None
+        with open('dataset.npy', 'rb') as f:
+            current_dataset = np.load(f, allow_pickle=True)
+
+        if current_dataset is not None:
+            self.dataset = np.vstack((current_dataset, self.dataset))
 
         with open('dataset.npy', 'wb') as f:
             np.save(f, self.dataset)

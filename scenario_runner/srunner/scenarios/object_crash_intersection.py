@@ -457,7 +457,7 @@ class VehicleTurningRoute(BasicScenario):
         """
         print("VehicleTurningRoute: Using route configuration")
 
-        self._other_actor_target_velocity = 7
+        self._other_actor_target_velocity = 3.0
         self._wmap = CarlaDataProvider.get_map()
         self._reference_waypoint = self._wmap.get_waypoint(config.trigger_points[0].location)
         self._trigger_location = config.trigger_points[0].location

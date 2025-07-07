@@ -106,3 +106,70 @@ class EgoModel():
         next_spds = np.array(next_spds)
 
         return next_locs, next_yaws, next_spds
+    
+    def value_at(self, eqn, t):
+        """
+        Evaluate the polynomial equation at time t.
+        Args:
+            eqn (np.ndarray): Polynomial coefficients for x, y, yaw, and speed.
+            t (float): Time at which to evaluate the polynomial.
+        Returns:
+            value (float): Evaluated value of the polynomial at time t.
+        """
+        eqn = np.flipud(eqn)  # Flip the coefficients for np.polyval
+        return np.polyval(eqn, t)  
+    
+    def forward_continuous(self, locs, yaws, spds, acts):
+        """
+        Forward method for continuous control.
+        Args:
+            locs (np.ndarray): Current coordinates of the ego vehicle.
+            yaws (np.ndarray): Current yaw angle of the ego vehicle.
+            spds (np.ndarray): Current speed of the ego vehicle.
+            acts (np.ndarray): Actions to be applied.
+        Returns:
+            eqns (np.ndarray): Array of polynomial coefficients for x, y, yaw, and speed.
+        """
+        steer = acts[..., 0:1].item()
+        throt = acts[..., 1:2].item()
+        brake = acts[..., 2:3].astype(np.uint8)
+        if (brake):
+            accel = self.brake_accel
+        else:
+            accel = self.throt_accel * throt
+        wheel = self.steer_gain * steer
+        beta = math.atan(self.rear_wb / (self.front_wb + self.rear_wb) * math.tan(wheel))
+        yaws = yaws.item()
+        spds = spds.item()
+        x_init = locs[0].item()
+        y_init = locs[1].item()
+        yaw_init = yaws
+        speed_init = spds
+
+        # Calculate the coefficients for the polynomial equations
+        x_coeff = [
+            x_init,
+            speed_init * math.cos(yaw_init + beta),
+            0.5 * accel * math.cos(yaw_init + beta),
+            # 0.0
+        ]
+        y_coeff = [
+            y_init,
+            speed_init * math.sin(yaw_init + beta),
+            0.5 * accel * math.sin(yaw_init + beta),
+            # 0.0
+        ]
+        yaw_coeff = [
+            yaw_init,
+            speed_init / self.rear_wb * math.sin(beta),
+            0.0,
+            # 0.0
+        ]
+        speed_coeff = [
+            speed_init,
+            accel,
+            0.0,
+            # 0.0
+        ]
+        eqns = np.array([x_coeff, y_coeff, yaw_coeff, speed_coeff])
+        return eqns

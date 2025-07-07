@@ -17,39 +17,26 @@ def plot_3d_bboxes(obj_boxes, color, ax, label, fps=20.0):
         poly = Poly3DCollection([box_3d], alpha=0.6)
         poly.set_facecolor(color)
         ax.add_collection3d(poly)
-        
-        # Optionally connect the center of each box with a line
-        # center = np.mean(box_3d, axis=0)
-        # ax.scatter(*center, color=color, label=label if t == 0 else "")
 
-def is_wp_safe_range(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed_min, other_speed_max, safety_distance=1.0, time=2, fps=20, debug=False):
-    """
-    Check if the predicted waypoints are safe from other vehicles within a speed range.
-
-    Just a wrapper around is_wp_safe that checks for a range of speeds.
-    """
-    min_speed = is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed_min, safety_distance, time, fps, debug)
-    max_speed = is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed_max, safety_distance, time, fps, debug)
-    return min_speed and max_speed
-
-def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed, safety_distance=1.0, time=2, fps=100, debug=False):
+def is_wp_safe(pred_wps, ego_dimensions, ego_speed, other_bbox, other_forward, other_speed, other_speed_max=10, time=2, fps=20, debug=False):
     """
     Check if the predicted waypoints are safe from other vehicles.
 
     Args:
         pred_wps (np.ndarray): Predicted waypoints of shape (4, 2).
-        current_bbox (np.ndarray): Current bounding box of the ego_vehicle, centered at (0, 0).
+        ego_dimensions (np.ndarray): Current bounding box of the ego_vehicle, centered at (0, 0).
         other_bbox (np.ndarray): Bounding box of the other vehicle, relative to the ego vehicle.
-        other_speed (float): Speed of the other vehicle.
         other_forward (np.ndarray): Unit forward vector of the other vehicle.
-        safety_distance (float): Minimum distance around the ego vehicle that needs to be clear.
+        other_speed (float): Speed of the other vehicle.
+        other_speed_max (float): Maximum speed of the other vehicle.
         time (int): Time in seconds to check for safety.
         fps (int): Frames per second for the simulation.
+        debug (bool): If True, will print debug information and plot the bounding boxes.
     Returns:
         bool: True if the waypoints are safe, False otherwise.
+        ego_bounding_boxes (np.ndarray): Bounding boxes of the ego vehicle over time.
     """
-    pred_wps_copy = pred_wps.copy()
-    # Assuming the bboxes are in the format ([(x1, y1), (x2, y2), (x3, y3), (x4, y4)])
+
     other_bboxes = {}
     for i in range(time * fps):
         other_distance = other_speed * (i / fps)
@@ -59,39 +46,55 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
         ]
 
     ego_bboxes = {}
-    current_locs = np.array([0.0, 0.0])  # Ego vehicle starts at the origin
+    current_locs = np.array([0.0, 0.0])     # Ego vehicle starts at the origin
+    ego_yaw = 0.0                           # The wps are predicted assuming the vehicle is at the origin and along x=0
     ego_model = EgoModel(dt=1./fps)
+    steer, throttle, brake = control_pid(pred_wps, ego_speed)
+    yaw = np.array([ego_yaw])
+    speed = np.array([ego_speed])
+    action = np.array(np.stack([steer, throttle, brake], axis=-1))
+    
+    ego_bounding_boxes = np.array([
+        [current_locs[0], current_locs[1], yaw[0]],
+    ])
     for i in range(time * fps):
-        # Remove waypoints that are behind the ego vehicle (already passed)
-        if pred_wps[0][0] <= current_locs[0] and pred_wps[0][1] <= current_locs[1]:
-            pred_wps = pred_wps[1:]  # Remove the first waypoint
+        pred_wps_copy = pred_wps.copy()
+        # Adjust the predicted waypoints to be relative to the ego vehicle
+        pred_wps_copy[:, 0] -= current_locs[0]
+        pred_wps_copy[:, 1] -= current_locs[1]
+        cos_yaw = np.cos(-ego_yaw)
+        sin_yaw = np.sin(-ego_yaw)
+        rotation_matrix = np.array([
+            [cos_yaw, -sin_yaw],
+            [sin_yaw, cos_yaw]
+        ])
+        pred_wps_copy = np.dot(pred_wps_copy, rotation_matrix.T)  # Rotate waypoints to match ego vehicle's orientation
+        forward_wps = pred_wps_copy[pred_wps_copy[:, 0] > 0]  # Only consider waypoints in front of the ego vehicle
+        
         # Need at least two waypoints to calculate control
-        if len(pred_wps) < 2:
+        if len(forward_wps) < 2:
             break
-        steer, throttle, brake = control_pid(pred_wps, ego_speed)
+
+        steer, throttle, brake = control_pid(forward_wps, ego_speed)
         yaw = np.array([ego_yaw])
         speed = np.array([ego_speed])
         action = np.array(np.stack([steer, throttle, brake], axis=-1))
         new_locs, new_yaw, new_speed = ego_model.forward(
             current_locs, yaw, speed, action)
-        if debug:
-            print(f"Time {i/fps:.2f}s: New locations: {new_locs}, New yaw: {new_yaw}, New speed: {new_speed}")
+        
         diff_vector = np.array(new_locs)
         ego_bboxes[i] = [
-            [vertex[0] + diff_vector[0], vertex[1] + diff_vector[1]] for vertex in ego_bbox
+            [vertex[0] + diff_vector[0], vertex[1] + diff_vector[1]] for vertex in ego_dimensions
         ]
         current_locs = new_locs
         ego_yaw = new_yaw
         ego_speed = new_speed
-
-    ego_xy = []
-    for bbox in ego_bboxes.values():
-        ego_xy.extend(bbox)
-    convex_hull = sp.ConvexHull(ego_xy)
+        datapoint = np.array([current_locs[0], current_locs[1], ego_yaw])
+        ego_bounding_boxes = np.append(ego_bounding_boxes, [datapoint], axis=0)
 
     if debug:
         print("Ego BBoxes:")
-        for i, bbox in ego_bboxes.items():
+        for i, bbox in enumerate(ego_bounding_boxes):
             print(f"Time {i/fps:.2f}s: {bbox}")
         print("Other BBoxes:")
         for i, bbox in other_bboxes.items():
@@ -109,7 +112,6 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
         ax.set_xlim(-15, 15)
         ax.set_ylim(15, -15)
         ax.set_zlim(0, 3)
-        ax.legend()
         plt.grid()
         plt.savefig('bounding_boxes_3d.png', dpi=300)
         plt.show()
@@ -129,7 +131,7 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
             other_polygon = plt.Polygon(other_bbox_i, fill=None, edgecolor='red', linewidth=1, label='Other Vehicle' if i == 0 else "")
             ax.add_patch(other_polygon)
         # Draw the predicted waypoints
-        pred_wps = np.array(pred_wps_copy)
+        pred_wps = np.array(pred_wps)
         ax.plot(pred_wps[:, 0], pred_wps[:, 1], marker='o', color='green', label='Predicted Waypoints')
         ax.set_xlim(-15, 15)
         ax.set_ylim(15, -15)
@@ -137,40 +139,9 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
         ax.set_title('Bounding Boxes Over Time')
         ax.set_xlabel('X Coordinate')
         ax.set_ylabel('Y Coordinate')
-        # ax.legend()
         plt.grid()
         plt.savefig('bounding_boxes.png', dpi=300)
         plt.show()
-
-        fig.clear()
-
-        # Plot the convex hull and indicate the points
-        fig, ax = plt.subplots()
-        hull_points = np.array([ego_xy[i] for i in convex_hull.vertices])
-        hull_polygon = plt.Polygon(hull_points, fill=None, edgecolor='purple', linewidth=1, label='Convex Hull')
-        ax.add_patch(hull_polygon)
-        # Plot the convex hull vertices
-        ax.plot(hull_points[:, 0], hull_points[:, 1], 'o', color='purple', markersize=3, label='Convex Hull Vertices')
-        # Draw the predicted waypoints
-        # pred_wps = np.array(pred_wps_copy)
-        # ax.plot(pred_wps[:, 0], pred_wps[:, 1], marker='o', color='green', label='Predicted Waypoints')
-        # Plot ego bounding boxes
-        # for i in range(min((time * fps), len(ego_bboxes))):
-        #     ego_bbox_i = [ego_bboxes[i][0], ego_bboxes[i][1], ego_bboxes[i][3], ego_bboxes[i][2]]  # Ensure correct order
-        #     ego_polygon = plt.Polygon(ego_bbox_i, fill=None, edgecolor='blue', linewidth=1, label='Ego Vehicle' if i == 0 else "")
-        #     ax.add_patch(ego_polygon)
-        ax.set_xlim(-15, 15)
-        ax.set_ylim(15, -15)
-        ax.set_aspect('equal', adjustable='box')
-        ax.set_title('Convex Hull of Ego Bounding Boxes')
-        ax.set_xlabel('X Coordinate')
-        ax.set_ylabel('Y Coordinate')
-        ax.legend()
-        plt.grid()
-        plt.savefig('convex_hull.png', dpi=300)
-        plt.show()
-
-
 
     for i in range(min((time * fps), len(ego_bboxes), len(other_bboxes))):
         ego_bbox_i = ego_bboxes[i]
@@ -179,14 +150,10 @@ def is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward
         # Check if the bounding boxes intersect
         if check_collision(ego_bbox_i, other_bbox_i):
             print(f"Collision detected at time {i/fps:.2f}s")
-            return False
-
-
-    if debug:
-        print("Convex Hull Vertices:", convex_hull.vertices)
+            return (False, ego_bounding_boxes)
 
     print("No collisions detected.")
-    return True
+    return (True, ego_bounding_boxes)
 
 
 pred_wps = np.array([[ 1.735676,   0.01005581],
@@ -194,12 +161,11 @@ pred_wps = np.array([[ 1.735676,   0.01005581],
  [ 5.6090746,  -0.03921339],
  [ 7.597434,  -0.07129178]])
 ego_bbox = np.array([(-2.446798801422119, -1.0641616582870483), (-2.446798801422119, 1.0641626119613647), (2.4548845291137695, -1.0641616582870483), (2.4548845291137695, 1.0641626119613647)])
-ego_yaw = 0.054454
 ego_speed = 3.7946761
 other_bbox = np.array([(7.773118495941162, 3.3192648887634277), (8.145111083984375, 3.299520492553711), (7.686257362365723, 1.6841745376586914), (8.058249473571777, 1.6644301414489746)])
 other_forward = np.array([-0.05287253, -0.99528052])
-other_speed = 7
+other_speed = 3
 
-is_wp_safe(pred_wps, ego_bbox, ego_yaw, ego_speed, other_bbox, other_forward, other_speed, debug=True)
+is_wp_safe(pred_wps, ego_bbox, ego_speed, other_bbox, other_forward, other_speed, debug=True)
     
 
