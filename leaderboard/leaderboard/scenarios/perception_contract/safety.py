@@ -18,7 +18,7 @@ def plot_3d_bboxes(obj_boxes, color, ax, label, fps=20.0):
         poly.set_facecolor(color)
         ax.add_collection3d(poly)
 
-def is_wp_safe(pred_wps, ego_dimensions, ego_speed, other_bbox, other_forward, other_speed, other_speed_max=10, time=2, fps=20, debug=False):
+def is_wp_safe(pred_wps, ego_dimensions, ego_speed, other_bbox, other_forward, other_speed, other_speed_min = 1, other_speed_max=10, time=2, fps=20, debug=False):
     """
     Check if the predicted waypoints are safe from other vehicles.
 
@@ -38,12 +38,25 @@ def is_wp_safe(pred_wps, ego_dimensions, ego_speed, other_bbox, other_forward, o
     """
 
     other_bboxes = {}
+    other_bbox_vary_speed = {}
     for i in range(time * fps):
         other_distance = other_speed * (i / fps)
         move_vector = other_forward * other_distance
         other_bboxes[i] = [
             (vertex[0] + move_vector[0], vertex[1] + move_vector[1]) for vertex in other_bbox
         ]
+
+        other_distance_min = other_speed_min * (i / fps)
+        other_distance_max = other_speed_max * (i / fps)
+        move_vector_min = other_forward * other_distance_min
+        move_vector_max = other_forward * other_distance_max
+        bounding_box_min = [
+            [vertex[0] + move_vector_min[0], vertex[1] + move_vector_min[1], other_speed_min] for vertex in other_bbox
+        ]
+        bounding_box_max = [
+            [vertex[0] + move_vector_max[0], vertex[1] + move_vector_max[1], other_speed_max] for vertex in other_bbox
+        ]
+        other_bbox_vary_speed[i] = [bounding_box_min, bounding_box_max]
 
     ego_bboxes = {}
     current_locs = np.array([0.0, 0.0])     # Ego vehicle starts at the origin
@@ -84,7 +97,7 @@ def is_wp_safe(pred_wps, ego_dimensions, ego_speed, other_bbox, other_forward, o
         
         diff_vector = np.array(new_locs)
         ego_bboxes[i] = [
-            [vertex[0] + diff_vector[0], vertex[1] + diff_vector[1]] for vertex in ego_dimensions
+            [vertex[0] + diff_vector[0], vertex[1] + diff_vector[1], ego_speed] for vertex in ego_dimensions
         ]
         current_locs = new_locs
         ego_yaw = new_yaw
@@ -100,48 +113,48 @@ def is_wp_safe(pred_wps, ego_dimensions, ego_speed, other_bbox, other_forward, o
         for i, bbox in other_bboxes.items():
             print(f"Time {i/fps:.2f}s: {bbox}")
             
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        plot_3d_bboxes(list(ego_bboxes.values()), 'blue', ax, 'Ego Vehicle', fps)
-        plot_3d_bboxes(list(other_bboxes.values()), 'red', ax, 'Other Vehicle', fps)
+    #     fig = plt.figure()
+    #     ax = fig.add_subplot(111, projection='3d')
+    #     plot_3d_bboxes(list(ego_bboxes.values()), 'blue', ax, 'Ego Vehicle', fps)
+    #     plot_3d_bboxes(list(other_bboxes.values()), 'red', ax, 'Other Vehicle', fps)
 
-        ax.set_xlabel('X Coordinate')
-        ax.set_ylabel('Y Coordinate')
-        ax.set_zlabel('Time (s)')
-        ax.set_title('Bounding Boxes Over Time')
-        ax.set_xlim(-15, 15)
-        ax.set_ylim(15, -15)
-        ax.set_zlim(0, 3)
-        plt.grid()
-        plt.savefig('bounding_boxes_3d.png', dpi=300)
-        plt.show()
+    #     ax.set_xlabel('X Coordinate')
+    #     ax.set_ylabel('Y Coordinate')
+    #     ax.set_zlabel('Time (s)')
+    #     ax.set_title('Bounding Boxes Over Time')
+    #     ax.set_xlim(-15, 15)
+    #     ax.set_ylim(15, -15)
+    #     ax.set_zlim(0, 3)
+    #     plt.grid()
+    #     plt.savefig('bounding_boxes_3d.png', dpi=300)
+    #     plt.show()
 
-        fig.clear()
+    #     fig.clear()
 
-        fig, ax = plt.subplots()
-        for i in range(min((time * fps), len(ego_bboxes), len(other_bboxes))):
-            ego_bbox_i = [ego_bboxes[i][0], ego_bboxes[i][1], ego_bboxes[i][3], ego_bboxes[i][2]]  # Ensure correct order
-            other_bbox_i = [other_bboxes[i][0], other_bboxes[i][1], other_bboxes[i][3], other_bboxes[i][2]]  # Ensure correct order
+    #     fig, ax = plt.subplots()
+    #     for i in range(min((time * fps), len(ego_bboxes), len(other_bboxes))):
+    #         ego_bbox_i = [ego_bboxes[i][0], ego_bboxes[i][1], ego_bboxes[i][3], ego_bboxes[i][2]]  # Ensure correct order
+    #         other_bbox_i = [other_bboxes[i][0], other_bboxes[i][1], other_bboxes[i][3], other_bboxes[i][2]]  # Ensure correct order
             
-            # Plot ego bounding box
-            ego_polygon = plt.Polygon(ego_bbox_i, fill=None, edgecolor='blue', linewidth=1, label='Ego Vehicle' if i == 0 else "")
-            ax.add_patch(ego_polygon)
+    #         # Plot ego bounding box
+    #         ego_polygon = plt.Polygon(ego_bbox_i, fill=None, edgecolor='blue', linewidth=1, label='Ego Vehicle' if i == 0 else "")
+    #         ax.add_patch(ego_polygon)
             
-            # Plot other bounding box
-            other_polygon = plt.Polygon(other_bbox_i, fill=None, edgecolor='red', linewidth=1, label='Other Vehicle' if i == 0 else "")
-            ax.add_patch(other_polygon)
-        # Draw the predicted waypoints
-        pred_wps = np.array(pred_wps)
-        ax.plot(pred_wps[:, 0], pred_wps[:, 1], marker='o', color='green', label='Predicted Waypoints')
-        ax.set_xlim(-15, 15)
-        ax.set_ylim(15, -15)
-        ax.set_aspect('equal', adjustable='box')
-        ax.set_title('Bounding Boxes Over Time')
-        ax.set_xlabel('X Coordinate')
-        ax.set_ylabel('Y Coordinate')
-        plt.grid()
-        plt.savefig('bounding_boxes.png', dpi=300)
-        plt.show()
+    #         # Plot other bounding box
+    #         other_polygon = plt.Polygon(other_bbox_i, fill=None, edgecolor='red', linewidth=1, label='Other Vehicle' if i == 0 else "")
+    #         ax.add_patch(other_polygon)
+    #     # Draw the predicted waypoints
+    #     pred_wps = np.array(pred_wps)
+    #     ax.plot(pred_wps[:, 0], pred_wps[:, 1], marker='o', color='green', label='Predicted Waypoints')
+    #     ax.set_xlim(-15, 15)
+    #     ax.set_ylim(15, -15)
+    #     ax.set_aspect('equal', adjustable='box')
+    #     ax.set_title('Bounding Boxes Over Time')
+    #     ax.set_xlabel('X Coordinate')
+    #     ax.set_ylabel('Y Coordinate')
+    #     plt.grid()
+    #     plt.savefig('bounding_boxes.png', dpi=300)
+    #     plt.show()
 
     for i in range(min((time * fps), len(ego_bboxes), len(other_bboxes))):
         ego_bbox_i = ego_bboxes[i]
@@ -164,7 +177,7 @@ ego_bbox = np.array([(-2.446798801422119, -1.0641616582870483), (-2.446798801422
 ego_speed = 3.7946761
 other_bbox = np.array([(7.773118495941162, 3.3192648887634277), (8.145111083984375, 3.299520492553711), (7.686257362365723, 1.6841745376586914), (8.058249473571777, 1.6644301414489746)])
 other_forward = np.array([-0.05287253, -0.99528052])
-other_speed = 3
+other_speed = 3.48
 
 is_wp_safe(pred_wps, ego_bbox, ego_speed, other_bbox, other_forward, other_speed, debug=True)
     

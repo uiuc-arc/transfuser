@@ -164,7 +164,7 @@ class ScenarioManager(object):
         # Register the scenario tick as callback for the CARLA world
         # Use the callback_id inside the signal handler to allow external interrupts
         signal.signal(signal.SIGINT, self.signal_handler)
-        self.dataset = np.array(["waypoints", "non_ego_bbox", "safety_check"])
+        self.dataset = np.array(["timestamp", "safe_spaces", "safety_check"])
 
     def signal_handler(self, signum, frame):
         """
@@ -292,7 +292,7 @@ class ScenarioManager(object):
                 # ego_yaw = get_yaw(self.ego_vehicles[0].get_transform(), CarlaDataProvider.get_map())
                 ego_speed = self.ego_vehicles[0].get_velocity()
                 ego_speed = np.sqrt(ego_speed.x**2 + ego_speed.y**2)
-                non_ego_speed = 3
+                non_ego_speed = 4.0
                 if len(waypoints) > 0:
                     safety_check, ego_bboxes = is_wp_safe(
                         waypoints, ego_bbox_origin, ego_speed,
@@ -351,13 +351,13 @@ class ScenarioManager(object):
         self.scenario_duration_game = self.end_game_time - self.start_game_time
 
         current_dataset = None
-        with open('dataset.npy', 'rb') as f:
+        with open('dataset_velocity_4.0.npy', 'rb') as f:
             current_dataset = np.load(f, allow_pickle=True)
 
         if current_dataset is not None:
             self.dataset = np.vstack((current_dataset, self.dataset))
 
-        with open('dataset.npy', 'wb') as f:
+        with open('dataset_velocity_4.0.npy', 'wb') as f:
             np.save(f, self.dataset)
 
         if self.get_running_status():
