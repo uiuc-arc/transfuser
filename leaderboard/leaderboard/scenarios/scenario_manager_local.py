@@ -19,6 +19,7 @@ import py_trees
 import carla
 import numpy as np
 import math
+import os
 
 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 from srunner.scenariomanager.timer import GameTime
@@ -29,6 +30,7 @@ from leaderboard.envs.sensor_interface import SensorReceivedNoData
 from leaderboard.utils.result_writer import ResultOutputProvider
 
 from leaderboard.scenarios.perception_contract.safety import is_wp_safe
+from leaderboard.scenarios.perception_contract.smt_check import SafetyChecker
 
 def get_rotation_matrix(roll, pitch, yaw):
     """
@@ -292,17 +294,21 @@ class ScenarioManager(object):
                 # ego_yaw = get_yaw(self.ego_vehicles[0].get_transform(), CarlaDataProvider.get_map())
                 ego_speed = self.ego_vehicles[0].get_velocity()
                 ego_speed = np.sqrt(ego_speed.x**2 + ego_speed.y**2)
-                non_ego_speed = 4.0
+                npc_speeds = [3, 15]
                 if len(waypoints) > 0:
-                    safety_check, ego_bboxes = is_wp_safe(
-                        waypoints, ego_bbox_origin, ego_speed,
-                        bbox, other_forward, non_ego_speed, time=2, fps=20)
-                    datapoint =  np.array([
-                        timestamp.elapsed_seconds, ego_bboxes, safety_check
-                    ])
+                    checker = SafetyChecker(
+                        bbox, npc_speeds, other_forward, scenario_start_time=1.0, fps=20,
+                        time=2)
+                    datapoint = checker.get_datapoint(timestamp.elapsed_seconds, waypoints, ego_speed)
+                    # safety_check, ego_bboxes = is_wp_safe(
+                    #     waypoints, ego_bbox_origin, ego_speed,
+                    #     bbox, other_forward, non_ego_speed, time=2, fps=20)
+                    # datapoint =  np.array([
+                    #     timestamp.elapsed_seconds, ego_bboxes, safety_check
+                    # ])
                     self.dataset = np.vstack((self.dataset, datapoint))
                     print("Dataset shape: ", self.dataset.shape)
-                    print("Safety check result: ", safety_check)
+                    print("Safety check result: ", datapoint[2])
                 print("=================================================")
             self.ego_vehicles[0].apply_control(ego_action)
 
@@ -351,8 +357,9 @@ class ScenarioManager(object):
         self.scenario_duration_game = self.end_game_time - self.start_game_time
 
         current_dataset = None
-        with open('dataset_velocity_4.0.npy', 'rb') as f:
-            current_dataset = np.load(f, allow_pickle=True)
+        if os.path.exists('dataset_velocity_4.0.npy'):
+            with open('dataset_velocity_4.0.npy', 'rb') as f:
+                current_dataset = np.load(f, allow_pickle=True)
 
         if current_dataset is not None:
             self.dataset = np.vstack((current_dataset, self.dataset))
