@@ -340,30 +340,30 @@ class SafetyChecker:
 # other_speed_min <= s, s <= other_speed_max)
 # If this is sat, then there is a collision. Hence, unsafe. 
 
-pred_wps = np.array([[ 1.735676,   0.01005581],
- [ 3.6433578,  -0.00992398],
- [ 5.6090746,  -0.03921339],
- [ 7.597434,  -0.07129178]])
-npc_starting = [(7.773118495941162, 3.3192648887634277), (8.145111083984375, 3.299520492553711), (7.686257362365723, 1.6841745376586914), (8.058249473571777, 1.6644301414489746)]
-npc_forward = ([-0.05287253, -0.99528052])
+# pred_wps = np.array([[ 1.735676,   0.01005581],
+#  [ 3.6433578,  -0.00992398],
+#  [ 5.6090746,  -0.03921339],
+#  [ 7.597434,  -0.07129178]])
+# npc_starting = [(7.773118495941162, 3.3192648887634277), (8.145111083984375, 3.299520492553711), (7.686257362365723, 1.6841745376586914), (8.058249473571777, 1.6644301414489746)]
+# npc_forward = ([-0.05287253, -0.99528052])
 
-solver = Solver()
-checker = SafetyChecker(
-)
-x = Real("x")
-y = Real("y")
-s = Real("s")
-t = Real("t")
-safety_preds = checker.is_in_other_bbox_volume(x, y, s, t)
-print("Safety predicates:", safety_preds)
-solver.add(safety_preds)
-result = solver.check()
-if result == sat:
-    print("Unsafe: There exists a collision.")
-    model = solver.model()
-    print("Model:", model)
-else:
-    print("Safe: No collision exists for the given parameters.")
+# solver = Solver()
+# checker = SafetyChecker(
+# )
+# x = Real("x")
+# y = Real("y")
+# s = Real("s")
+# t = Real("t")
+# safety_preds = checker.is_in_other_bbox_volume(x, y, s, t)
+# print("Safety predicates:", safety_preds)
+# solver.add(safety_preds)
+# result = solver.check()
+# if result == sat:
+#     print("Unsafe: There exists a collision.")
+#     model = solver.model()
+#     print("Model:", model)
+# else:
+#     print("Safe: No collision exists for the given parameters.")
 # result = checker.get_datapoint()
 # print(result)
 # solver.add(
