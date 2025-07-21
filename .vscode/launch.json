@@ -47,7 +47,7 @@
             "type": "debugpy",
             "request": "launch",
             "cwd": "${workspaceFolder}",
-            "program": "leaderboard/leaderboard/scenarios/perception_contract/safety.py",
+            "program": "leaderboard/leaderboard/scenarios/perception_contract/smt_check.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {

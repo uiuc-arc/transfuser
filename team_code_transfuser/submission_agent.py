@@ -404,7 +404,7 @@ class HybridAgent(autonomous_agent.AutonomousAgent):
         self.control = control
 
         self.update_gps_buffer(self.control, tick_data['compass'], tick_data['speed'])
-        return control, wps
+        return control, wps, self.nets[0].i
 
     def bb_detected_in_front_of_vehicle(self, ego_speed):
         if (len(self.bb_buffer) < 1):  # We only start after we have 4 time steps.

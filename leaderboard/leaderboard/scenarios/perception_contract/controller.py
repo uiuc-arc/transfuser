@@ -1,3 +1,4 @@
+from typing import Tuple, List
 import math
 import numpy as np
 from collections import deque
@@ -35,7 +36,7 @@ speed_KD = 1.0
 speed_n = 20 
 speed_controller = PIDController(K_P=speed_KP, K_I=speed_KI, K_D=speed_KD, n=speed_n)
 
-def control_pid(waypoints, speed, is_stuck=False):
+def control_pid(waypoints:np.ndarray, speed:np.ndarray):
     ''' Predicts vehicle control with a PID controller.
     Args:
         waypoints (tensor): output of self.plan()
@@ -79,7 +80,7 @@ class EgoModel():
         self.brake_accel = -4.952399
         self.throt_accel = 0.5633837
 
-    def forward(self, locs, yaws, spds, acts):
+    def forward(self, locs, yaws, spds, acts) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         # Kinematic bicycle model. Numbers are the tuned parameters from World on Rails
         steer = acts[..., 0:1].item()
         throt = acts[..., 1:2].item()

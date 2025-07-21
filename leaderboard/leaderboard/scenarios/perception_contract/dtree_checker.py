@@ -1,17 +1,253 @@
 import z3
-import numpy as np
-import json
-import itertools
-from smt_check import SafetyChecker
+from typing import List
+from copy import deepcopy as copy
 
 
 class DTreeChecker:
-    def __init__(self, tree_path):
-        self.tree_path = tree_path
-        self.tree = self.get_pre_from_json(tree_path)
+    def __init__(self, npc_speeds: List[float] = [3.0, 15.0]):
+        # Taken from TransFuser codebase and checked with CARLA
+        self.ego_bbox = [
+            (-2.4508416652679443, 1.0641621351242065),
+            (-2.4508416652679443, -1.0641621351242065),
+            (2.4508416652679443, -1.0641621351242065),
+            (2.4508416652679443, 1.0641621351242065),
+        ]
         self.solver = z3.Solver()
-        self.solver.set("timeout", 10000)  # Set a timeout of 10 seconds
-        self.solver.set("model", True)  # Enable model generation
+        self.scenario_start_time = 43.4
+        self.scenario_end_time = 73.4
+        self.fps = 2
+        self.npc_starting = [
+            [162.85765075683594, 37.39452362060547],
+            [162.8581085205078, 37.02200698852539],
+            [161.21482849121094, 37.392520904541016],
+            [161.2152862548828, 37.02000427246094],
+        ]
+        self.npc_forward = [-0.9999862909317017, -0.0012179769109934568]
+        self.npc_speeds = npc_speeds
+
+    def is_in_unsafe_region(
+        self, x: z3.ArithRef, y: z3.ArithRef, s: z3.ArithRef, t: z3.ArithRef
+    ) -> z3.BoolRef:
+        """
+        Check if the point (x, y) is inside the bounding box of the NPC at time t, assuming translation based on speed s.
+        Args: (All symbolic)
+            x (z3.ArithRef): x-coordinate of the point.
+            y (z3.ArithRef): y-coordinate of the point.
+            s (z3.ArithRef): Speed of the NPC.
+            t (z3.ArithRef): Absolute time at which to check the bounding box.
+        Returns:
+            z3.BoolRef: A Z3 expression that is True if the point is inside the bounding box of the space
+                        occupied by the NPC
+        """
+
+        predicates = []
+
+        npc_x_0 = z3.Real("npc_x_0")
+        npc_y_0 = z3.Real("npc_y_0")
+        npc_x_1 = z3.Real("npc_x_1")
+        npc_y_1 = z3.Real("npc_y_1")
+        npc_x_2 = z3.Real("npc_x_2")
+        npc_y_2 = z3.Real("npc_y_2")
+        npc_x_3 = z3.Real("npc_x_3")
+        npc_y_3 = z3.Real("npc_y_3")
+
+        predicates.append(
+            z3.Implies(
+                t < self.scenario_start_time,
+                z3.And(
+                    s == 0,
+                    npc_x_0 == self.npc_starting[0][0],
+                    npc_y_0 == self.npc_starting[0][1],
+                    npc_x_1 == self.npc_starting[1][0],
+                    npc_y_1 == self.npc_starting[1][1],
+                    npc_x_2 == self.npc_starting[2][0],
+                    npc_y_2 == self.npc_starting[2][1],
+                    npc_x_3 == self.npc_starting[3][0],
+                    npc_y_3 == self.npc_starting[3][1],
+                ),
+            )
+        )
+        predicates.append(
+            z3.Implies(
+                z3.And(t >= self.scenario_start_time, t <= self.scenario_end_time),
+                z3.And(s >= self.npc_speeds[0], s <= self.npc_speeds[1]),
+            )
+        )
+        predicates.append(z3.Implies(t > self.scenario_end_time, s == 0))
+
+        predicates.append(
+            z3.Implies(
+                t >= self.scenario_start_time,
+                z3.And(
+                    npc_x_0
+                    == (
+                        self.npc_starting[0][0]
+                        + self.npc_forward[0] * s * ((t - self.scenario_start_time))
+                    ),
+                    npc_y_0
+                    == (
+                        self.npc_starting[0][1]
+                        + self.npc_forward[1] * s * ((t - self.scenario_start_time))
+                    ),
+                    npc_x_1
+                    == (
+                        self.npc_starting[1][0]
+                        + self.npc_forward[0] * s * ((t - self.scenario_start_time))
+                    ),
+                    npc_y_1
+                    == (
+                        self.npc_starting[1][1]
+                        + self.npc_forward[1] * s * ((t - self.scenario_start_time))
+                    ),
+                    npc_x_2
+                    == (
+                        self.npc_starting[2][0]
+                        + self.npc_forward[0] * s * ((t - self.scenario_start_time))
+                    ),
+                    npc_y_2
+                    == (
+                        self.npc_starting[2][1]
+                        + self.npc_forward[1] * s * ((t - self.scenario_start_time))
+                    ),
+                    npc_x_3
+                    == (
+                        self.npc_starting[3][0]
+                        + self.npc_forward[0] * s * ((t - self.scenario_start_time))
+                    ),
+                    npc_y_3
+                    == (
+                        self.npc_starting[3][1]
+                        + self.npc_forward[1] * s * ((t - self.scenario_start_time))
+                    ),
+                ),
+            )
+        )
+
+        """
+        M of coordinates (x,y) is inside the rectangle iff
+        (0<AM⋅AB<AB⋅AB)∧(0<AM⋅AD<AD⋅AD) where . is the dot product,
+        where A is the first vertex of the rectangle, B is the second vertex, and D is the fourth vertex.
+        """
+        A = (npc_x_0, npc_y_0)
+        B = (npc_x_1, npc_y_1)
+        D = (npc_x_3, npc_y_3)
+        M = (x, y)
+        AM_AB = ((M[0] - A[0]) * (B[0] - A[0])) + ((M[1] - A[1]) * (B[1] - A[1]))
+        AM_AD = ((M[0] - A[0]) * (D[0] - A[0])) + ((M[1] - A[1]) * (D[1] - A[1]))
+        AB_AB = ((B[0] - A[0]) ** 2) + ((B[1] - A[1]) ** 2)
+        AD_AD = ((D[0] - A[0]) ** 2) + ((D[1] - A[1]) ** 2)
+        predicates.append(
+            z3.And(AM_AB >= 0, AM_AB <= AB_AB, AM_AD >= 0, AM_AD <= AD_AD)
+        )
+        # Check if the point (x, y) is inside the bounding box of the NPC
+        return z3.And(*predicates)
+
+    def is_in_safe_region(
+        self, x: z3.ArithRef, y: z3.ArithRef, ego_point: List[z3.ArithRef]
+    ) -> z3.BoolRef:
+        if len(ego_point) != 4:
+            raise ValueError(
+                "Ego point must be a list of 4 elements: [x, y, cos(yaw), sin(yaw)]"
+            )
+        ego_x, ego_y, cos_yaw, sin_yaw = ego_point
+        predicates = []
+
+        # get the vertices of the ego bounding box
+        ego_bbox_transformed = []
+        for vertex in self.ego_bbox:
+            transformed_vertex = (vertex[0] + ego_x, vertex[1] + ego_y)
+            ego_bbox_transformed.append(transformed_vertex)
+
+        # Rotate the bounding box vertices by the yaw angle
+        rotated_bbox = []
+        for vertex in ego_bbox_transformed:
+            rotated_x = vertex[0] * cos_yaw - vertex[1] * sin_yaw
+            rotated_y = vertex[0] * sin_yaw + vertex[1] * cos_yaw
+            rotated_bbox.append((rotated_x, rotated_y))
+
+        # Check if the point (x, y) is inside the rotated bounding box
+        A = rotated_bbox[0]
+        B = rotated_bbox[1]
+        D = rotated_bbox[3]  # Fourth vertex
+        M = (x, y)
+        AM_AB = ((M[0] - A[0]) * (B[0] - A[0])) + ((M[1] - A[1]) * (B[1] - A[1]))
+        AM_AD = ((M[0] - A[0]) * (D[0] - A[0])) + ((M[1] - A[1]) * (D[1] - A[1]))
+        AB_AB = ((B[0] - A[0]) ** 2) + ((B[1] - A[1]) ** 2)
+        AD_AD = ((D[0] - A[0]) ** 2) + ((D[1] - A[1]) ** 2)
+        predicates.append(
+            z3.And(AM_AB >= 0, AM_AB <= AB_AB, AM_AD >= 0, AM_AD <= AD_AD)
+        )
+        return z3.And(*predicates)
+
+    def is_region_safe(self, conjunct: z3.BoolRef, pred_len: int = 2) -> z3.BoolRef:
+        t = z3.Real("t")
+        s = z3.Real("s")
+
+        x = z3.Real("x")
+        y = z3.Real("y")
+
+        x_pred = [z3.Real(f"x_{i}") for i in range(pred_len)]
+        y_pred = [z3.Real(f"y_{i}") for i in range(pred_len)]
+        cos_yaw_pred = [z3.Real(f"cos_{i}") for i in range(pred_len)]
+        sin_yaw_pred = [z3.Real(f"sin_{i}") for i in range(pred_len)]
+
+        predicates = []
+
+        ego_preds = []
+
+        for i in range(pred_len):
+            predicates.append(cos_yaw_pred[i] ** 2 + sin_yaw_pred[i] ** 2 == 1)
+            ego_preds.append(
+                z3.And(
+                    self.is_in_safe_region(
+                        x, y, [x_pred[i], y_pred[i], cos_yaw_pred[i], sin_yaw_pred[i]]
+                    ),
+                    self.is_in_unsafe_region(x, y, s, t + (i / self.fps)),
+                )
+            )
+
+        predicates.append(z3.Or(*ego_preds))
+        predicates.append(t >= 0)
+        predicates.append(conjunct)
+
+        return z3.And(*predicates)
+
+    def get_cex(self, conjunct: z3.BoolRef, pred_len: int = 2) -> List[float]:
+        """
+        Get a counterexample for the given conjunct.
+        Args:
+            conjunct (z3.BoolRef): The conjunct to check.
+            pred_len (int): Number of predictions to consider.
+        Returns:
+            List[float]: A list of values representing the counterexample.
+        """
+        self.solver.push()
+        self.solver.add(self.is_region_safe(conjunct, pred_len))
+        if self.solver.check() == z3.sat:
+            model = self.solver.model()
+            cex = {
+                "time" : None,
+            }
+            for i in range(pred_len):
+                cex[f"x_{i}"] = None
+                cex[f"y_{i}"] = None
+                cex[f"cos_yaw_{i}"] = None
+                cex[f"sin_yaw_{i}"] = None
+            model = DTreeChecker.z3_model_to_dict(model, cex)
+            print("Counterexample found:", model)
+            self.solver.pop()
+            
+            datapoint = [model["time"]]
+            for i in range(pred_len):
+                datapoint.append(model[f"x_{i}"])
+                datapoint.append(model[f"y_{i}"])
+                datapoint.append(model[f"cos_yaw_{i}"])
+                datapoint.append(model[f"sin_yaw_{i}"])
+
+            return datapoint
+        else:
+            self.solver.pop()
+            return []
 
     def candidate_to_conjuncts(self, candidate: z3.BoolRef):
         init_path = [candidate]
@@ -27,8 +263,12 @@ class DTreeChecker:
                     yield z3.BoolVal(True)
                 else:
                     yield z3.And(*curr_path)
-            elif z3.is_gt(curr_node) or z3.is_ge(curr_node) \
-                    or z3.is_lt(curr_node) or z3.is_le(curr_node):
+            elif (
+                z3.is_gt(curr_node)
+                or z3.is_ge(curr_node)
+                or z3.is_lt(curr_node)
+                or z3.is_le(curr_node)
+            ):
                 yield z3.And(*curr_path, curr_node)
             elif z3.is_app_of(curr_node, z3.Z3_OP_ITE):
                 cond, left, right = curr_node.children()
@@ -49,176 +289,56 @@ class DTreeChecker:
                 stack.append(r_path)
                 stack.append(l_path)
             else:
-                raise RuntimeError(f"Candidate formula {curr_node} should have been converted to DNF.")
+                raise RuntimeError(
+                    f"Candidate formula {curr_node} should have been converted to DNF."
+                )
 
+    def check(self, candidate: z3.BoolRef, pred_len: int = 2) -> List[List[float]]:
+        """
+        Check if the candidate is safe.
+        Args:
+            candidate (z3.BoolRef): The candidate to check.
+            pred_len (int): Number of predictions to consider.
+        Returns:
+            bool: True if the candidate is safe, False otherwise.
+        """
+        cexs = []
+        conjuncts = list(self.candidate_to_conjuncts(candidate))
+        for conjunct in conjuncts:
+            cex = self.get_cex(conjunct, pred_len)
+            if len(cex) > 0:
+                cexs.append(cex)
+        if len(cexs) > 0:
+            print(f"Counterexamples found: {cexs}")
+        else:
+            print("No counterexamples found. The candidate is safe.")
+        return cexs
 
+    @staticmethod
+    def z3_model_to_dict(model, placeholder_dict):
+        """
+        Convert a Z3 model to a dictionary with string keys and numerical values.
+        """
+        res = copy(placeholder_dict)
+        for key in placeholder_dict:
+            value = model.evaluate(z3.Real(key), model_completion=True)
 
-num_timesteps = 2
-
-def flatten(lst):
-    """Flatten a list of tuples into a single list."""
-    return [item for sublist in lst for item in sublist]
-
-base_features = flatten([(f"x_{i}", f"y_{i}", f"cos_{i}", f"sin_{i}") for i in range(num_timesteps)])
-base_features = ["time"] + base_features
-derived_feature_map = {}
-
-def _generate_derived_features(
-        base_vars, k = 2):
-    res = []
-    for var in base_vars:
-        var_coeff_map = {var: -1}
-        expr = f"(-1*{var})"
-        name = expr
-        res.append((name, (var_coeff_map, expr)))
-
-    if len(base_vars) < k:
+            if isinstance(value, z3.ArithRef):
+                if isinstance(value, z3.RatNumRef):
+                    res[key] = (
+                        value.numerator().as_long() / value.denominator().as_long()
+                    )
+                elif isinstance(value, z3.AlgebraicNumRef):
+                    res[key] = z3.simplify(value).approx()
+                else:
+                    res[key] = z3.FPVal(value, z3.Float64())
+            elif isinstance(value, z3.BoolRef):
+                res[key] = value.as_long()
+            else:
+                res[key] = value
         return res
 
-    coeff_combinations = list(itertools.product([1, -1], repeat=k))
-    var_id_iter = range(len(base_vars))
-    for selected_var_ids in itertools.combinations(var_id_iter, k):
-        for coeff in coeff_combinations:
-            var_coeff_map = {base_vars[i]: c
-                                for c, i in zip(coeff, selected_var_ids)}
-            expr = " + ".join(f"({c}*{base_vars[i]})"
-                                for c, i in zip(coeff, selected_var_ids))
-            name = f"({expr})"
-            res.append((name, (var_coeff_map, expr)))
-    return res
 
-for k in range(2, len(base_features)+1):
-    derived_feature_map.update(
-        _generate_derived_features(base_features, k))
-
-
-_var_coeff_map = {}
-_var_coeff_map.update([
-    (var, {var: 1}) for var in base_features
-])
-_var_coeff_map.update([
-    (var, coeff_map) for var, (coeff_map, _) in derived_feature_map.items()
-])
-
-def get_pre_from_json(path):
-    try:
-        with open(path) as json_file:
-            tree = json.load(json_file)
-            return parse_tree(tree)
-    except json.JSONDecodeError:
-        raise ValueError(f"cannot parse {path} as a json file")
-
-def parse_tree(tree) -> z3.BoolRef:
-    if tree['children'] is None:
-        # At a leaf node, return the clause
-        if tree['classification']:
-            return z3.BoolVal(True)  # True leaf node
-        else:
-            return z3.BoolVal(False)  # False leaf node
-    elif len(tree['children']) == 2:
-        # Post-order traversal
-        left = parse_tree(tree['children'][0])
-        right = parse_tree(tree['children'][1])
-        # Create an ITE expression tree
-        z3_expr = z3.Sum(*(coeff*z3.Real(base_fvar) for base_fvar, coeff
-                            in _var_coeff_map[tree['attribute']].items()))
-        z3_cut = z3.simplify(z3.fpToReal(z3.FPVal(tree['cut'], z3.Float64())))
-        if z3.is_true(left):
-            if z3.is_true(right):
-                return z3.BoolVal(True)
-            elif z3.is_false(right):
-                return (z3_expr <= z3_cut)
-        if z3.is_false(left):
-            if z3.is_true(right):
-                return (z3_expr > z3_cut)
-            elif z3.is_false(right):
-                return z3.BoolVal(False)
-        # else:
-        return z3.If((z3_expr <= z3_cut), left, right)
-    else:
-        raise ValueError("error parsing the json object as a binary decision tree)")
-
-def candidate_to_conjuncts(candidate: z3.BoolRef):
-    init_path = [candidate]
-    stack = [init_path]
-    while stack:
-        curr_path = stack.pop()  # remove this path
-        curr_node = curr_path.pop()  # remove last node in this path
-        if z3.is_false(curr_node):
-            # the leaf node in this path is false. Skip
-            continue
-        elif z3.is_true(curr_node):
-            if not curr_path:
-                yield z3.BoolVal(True)
-            else:
-                yield z3.And(*curr_path)
-        elif z3.is_gt(curr_node) or z3.is_ge(curr_node) \
-                or z3.is_lt(curr_node) or z3.is_le(curr_node):
-            yield z3.And(*curr_path, curr_node)
-        elif z3.is_app_of(curr_node, z3.Z3_OP_ITE):
-            cond, left, right = curr_node.children()
-            l_path = curr_path.copy()
-            l_path.extend([cond, left])
-
-            r_path = curr_path.copy()
-            assert len(cond.children()) == 2
-            lhs, rhs = cond.children()
-            if z3.is_le(cond):
-                not_cond = lhs > rhs
-            elif z3.is_ge(cond):
-                not_cond = lhs < rhs
-            else:
-                raise RuntimeError(f"Unexpected condition {cond} for ITE")
-            r_path.extend([not_cond, right])
-
-            stack.append(r_path)
-            stack.append(l_path)
-        else:
-            raise RuntimeError(f"Candidate formula {curr_node} should have been converted to DNF.")
-
-def z3_model_to_dict(model):
-    """
-    Convert a Z3 model to a dictionary with string keys and numerical values.
-    """
-    res = {}
-    for k in model:
-        if isinstance(model[k], z3.ArithRef):
-            if isinstance(model[k], z3.RatNumRef):
-                res[str(k)] = model[k].numerator().as_long() / model[k].denominator().as_long()
-            elif isinstance(model[k], z3.AlgebraicNumRef):
-                res[str(k)] = z3.simplify(model[k]).approx()
-            else:
-                res[str(k)] = z3.FPVal(model[k], z3.Float64())
-        elif isinstance(model[k], z3.BoolRef):
-            res[str(k)] = model[k].as_long()
-        else:
-            res[str(k)] = model[k]
-    return res
-
-tree = get_pre_from_json("dataset/dataset.json")
-print(tree)
-conjuncts = list(candidate_to_conjuncts(tree))
-datapoint_feats = [f"x_{i}" for i in range(num_timesteps)] + \
-    [f"y_{i}" for i in range(num_timesteps)] + \
-    [f"cos_{i}" for i in range(num_timesteps)] + \
-    [f"sin_{i}" for i in range(num_timesteps)]
-checker = SafetyChecker()
-for c in conjuncts:
-    print(c, "\n")
-    preds = checker.is_region_safe(c)
-    checker.solver.push()
-    # print("Predicates:", preds)
-    checker.solver.add(preds)
-    if checker.solver.check() == z3.sat:
-        print("Conjunct is satisfiable, hence unsafe.")
-        model = checker.solver.model()
-        model = z3_model_to_dict(model)
-        cex = [model[k] for k in datapoint_feats]
-        print("Counterexample:", cex)
-        # print("Model:", model)
-        checker.solver.pop()
-        continue
-    else:
-        print("Conjunct is not satisfiable, hence safe.")
-        checker.solver.pop()
-        continue
+if __name__ == "__main__":
+    checker = DTreeChecker()
+    # Example usage

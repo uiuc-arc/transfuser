@@ -385,9 +385,9 @@ class VehicleTurningLeft(BasicScenario):
                                                           bycicle_start_dist)
 
         actor_velocity = KeepVelocity(self.other_actors[0], self._other_actor_target_velocity)
-        actor_traverse = DriveDistance(self.other_actors[0], 0.30 * dist_to_travel)
+        actor_traverse = DriveDistance(self.other_actors[0], 1.0 * dist_to_travel)
         post_timer_velocity_actor = KeepVelocity(self.other_actors[0], self._other_actor_target_velocity)
-        post_timer_traverse_actor = DriveDistance(self.other_actors[0], 0.70 * dist_to_travel)
+        post_timer_traverse_actor = DriveDistance(self.other_actors[0], 0.0 * dist_to_travel)
         end_condition = TimeOut(5)
 
         # non leaf nodes
@@ -457,7 +457,7 @@ class VehicleTurningRoute(BasicScenario):
         """
         print("VehicleTurningRoute: Using route configuration")
 
-        self._other_actor_target_velocity = 3.0
+        self._other_actor_target_velocity = 2.0
         self._wmap = CarlaDataProvider.get_map()
         self._reference_waypoint = self._wmap.get_waypoint(config.trigger_points[0].location)
         self._trigger_location = config.trigger_points[0].location
@@ -556,9 +556,9 @@ class VehicleTurningRoute(BasicScenario):
                                                           bycicle_start_dist)
 
         actor_velocity = KeepVelocity(self.other_actors[0], self._other_actor_target_velocity)
-        actor_traverse = DriveDistance(self.other_actors[0], 0.30 * dist_to_travel)
+        actor_traverse = DriveDistance(self.other_actors[0], 1.0 * dist_to_travel)
         post_timer_velocity_actor = KeepVelocity(self.other_actors[0], self._other_actor_target_velocity)
-        post_timer_traverse_actor = DriveDistance(self.other_actors[0], 0.70 * dist_to_travel)
+        post_timer_traverse_actor = DriveDistance(self.other_actors[0], 0.0 * dist_to_travel)
         end_condition = TimeOut(5)
 
         # non leaf nodes

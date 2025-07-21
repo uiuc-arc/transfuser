@@ -114,12 +114,13 @@ class AutonomousAgent(object):
 
         control = self.run_step(input_data, timestamp)
         if type(control) is tuple:
-            control, waypoints = control
+            control, waypoints, i = control
         else:
             waypoints = []
+            i = -1
         control.manual_gear_shift = False
 
-        return control, waypoints
+        return control, waypoints, i
 
     def set_global_plan(self, global_plan_gps, global_plan_world_coord):
         """

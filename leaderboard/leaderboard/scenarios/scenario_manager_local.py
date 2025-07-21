@@ -18,6 +18,7 @@ import time
 import py_trees
 import carla
 import numpy as np
+import json
 import math
 import os
 
@@ -30,7 +31,7 @@ from leaderboard.envs.sensor_interface import SensorReceivedNoData
 from leaderboard.utils.result_writer import ResultOutputProvider
 
 from leaderboard.scenarios.perception_contract.safety import is_wp_safe
-from leaderboard.scenarios.perception_contract.smt_check import SafetyChecker
+from leaderboard.scenarios.perception_contract.process_dataset import SafetyChecker
 
 def get_rotation_matrix(roll, pitch, yaw):
     """
@@ -166,7 +167,7 @@ class ScenarioManager(object):
         # Register the scenario tick as callback for the CARLA world
         # Use the callback_id inside the signal handler to allow external interrupts
         signal.signal(signal.SIGINT, self.signal_handler)
-        self.dataset = np.array(["timestamp", "safe_spaces", "safety_check"])
+        self.dataset = []
 
     def signal_handler(self, signum, frame):
         """
@@ -238,7 +239,7 @@ class ScenarioManager(object):
             CarlaDataProvider.on_carla_tick()
 
             try:
-                ego_action, waypoints = self._agent()
+                ego_action, waypoints, frame_num = self._agent()
 
             # Special exception inside the agent that isn't caused by the agent
             except SensorReceivedNoData as e:
@@ -263,6 +264,10 @@ class ScenarioManager(object):
             ego_bbox_origin = self.ego_vehicles[0].bounding_box.get_world_vertices(origin_transform)
             ego_bbox_origin = [(vertex.x, vertex.y) for vertex in ego_bbox_origin]
             ego_bbox_origin = unique(ego_bbox_origin)
+
+            ego_bbox = self.ego_vehicles[0].bounding_box.get_world_vertices(ego_transform)
+            ego_bbox = [(vertex.x, vertex.y) for vertex in ego_bbox]
+            ego_bbox = unique(ego_bbox)
             # print("Ego bounding box: ", ego_bbox_origin)
             # print("------------------------------------------------")
 
@@ -280,15 +285,16 @@ class ScenarioManager(object):
                     carla.Rotation(roll=roll, pitch=pitch, yaw=yaw)
                 )
 
-                bbox = self.other_actors[0].bounding_box.get_world_vertices(new_transform)
+                bbox = self.other_actors[0].bounding_box
+                bbox = self.other_actors[0].bounding_box.get_world_vertices(self.other_actors[0].get_transform())
                 bbox = [(vertex.x, vertex.y) for vertex in bbox]
                 bbox = unique(bbox)
 
                 other_forward = self.other_actors[0].get_transform().get_forward_vector()
-                other_forward = np.array([other_forward.x, other_forward.y, other_forward.z])
-                ego_rotation_matrix_inv = np.array(ego_matrix_inv)[:3, :3]
-                other_forward = np.dot(ego_rotation_matrix_inv, other_forward)
-                other_forward = np.array(other_forward[0:2])
+                other_forward = [other_forward.x, other_forward.y]
+                # print("Other forward vector: ", other_forward)
+                # ego_rotation_matrix_inv = np.array(ego_matrix_inv)[:3, :3]
+                # other_forward = np.dot(ego_rotation_matrix_inv, other_forward)
 
                 # ego_yaw = self.ego_vehicles[0].get_transform().rotation.yaw
                 # ego_yaw = get_yaw(self.ego_vehicles[0].get_transform(), CarlaDataProvider.get_map())
@@ -296,19 +302,25 @@ class ScenarioManager(object):
                 ego_speed = np.sqrt(ego_speed.x**2 + ego_speed.y**2)
                 npc_speeds = [3, 15]
                 if len(waypoints) > 0:
-                    checker = SafetyChecker(
-                        bbox, npc_speeds, other_forward, scenario_start_time=1.0, fps=20,
-                        time=2)
-                    datapoint = checker.get_datapoint(timestamp.elapsed_seconds, waypoints, ego_speed)
-                    # safety_check, ego_bboxes = is_wp_safe(
-                    #     waypoints, ego_bbox_origin, ego_speed,
-                    #     bbox, other_forward, non_ego_speed, time=2, fps=20)
-                    # datapoint =  np.array([
-                    #     timestamp.elapsed_seconds, ego_bboxes, safety_check
-                    # ])
-                    self.dataset = np.vstack((self.dataset, datapoint))
-                    print("Dataset shape: ", self.dataset.shape)
-                    print("Safety check result: ", datapoint[2])
+                    # checker = SafetyChecker(
+                    #     bbox, npc_speeds, other_forward, scenario_start_time=1.0, fps=20,
+                    #     time=2)
+                    # datapoint = checker.get_datapoint(timestamp.elapsed_seconds, waypoints, ego_speed)
+                    # self.dataset = np.vstack((self.dataset, datapoint))
+                    # print("Dataset shape: ", self.dataset.shape)
+                    # print("Safety check result: ", datapoint[2])
+                    datapoint = {
+                        "timestamp": timestamp.elapsed_seconds,
+                        "ego_bbox": ego_bbox,
+                        "npc_bbox": bbox,
+                        "npc_forward": other_forward,
+                        "ego_speed": ego_speed,
+                        "waypoints": waypoints.tolist(),
+                    }
+                    print("i = ", frame_num, ", timestamp = ", timestamp.elapsed_seconds)
+                    self.dataset.append(datapoint)
+                else:
+                    print("No waypoints available for safety check.")
                 print("=================================================")
             self.ego_vehicles[0].apply_control(ego_action)
 
@@ -357,15 +369,15 @@ class ScenarioManager(object):
         self.scenario_duration_game = self.end_game_time - self.start_game_time
 
         current_dataset = None
-        if os.path.exists('dataset_velocity_4.0.npy'):
-            with open('dataset_velocity_4.0.npy', 'rb') as f:
-                current_dataset = np.load(f, allow_pickle=True)
+        if os.path.exists('datasets_v1/dataset_velocity_2.0.json'):
+            with open('datasets_v1/dataset_velocity_2.0.json', 'r') as f:
+                current_dataset = json.load(f)
 
         if current_dataset is not None:
-            self.dataset = np.vstack((current_dataset, self.dataset))
+            self.dataset = current_dataset + self.dataset
 
-        with open('dataset_velocity_4.0.npy', 'wb') as f:
-            np.save(f, self.dataset)
+        with open('datasets_v1/dataset_velocity_2.0.json', 'w') as f:
+            json.dump(self.dataset, f, indent=4)
 
         if self.get_running_status():
             if self.scenario is not None:
