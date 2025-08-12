@@ -457,7 +457,7 @@ class VehicleTurningRoute(BasicScenario):
         """
         print("VehicleTurningRoute: Using route configuration")
 
-        self._other_actor_target_velocity = 2.0
+        self._other_actor_target_velocity = 15.0
         self._wmap = CarlaDataProvider.get_map()
         self._reference_waypoint = self._wmap.get_waypoint(config.trigger_points[0].location)
         self._trigger_location = config.trigger_points[0].location
@@ -543,7 +543,7 @@ class VehicleTurningRoute(BasicScenario):
         lane_width = self._reference_waypoint.lane_width
         dist_to_travel = lane_width + (1.10 * lane_width * self._num_lane_changes)
 
-        bycicle_start_dist = 13 + dist_to_travel
+        bycicle_start_dist = 5 + dist_to_travel
 
         if self._ego_route is not None:
             trigger_distance = InTriggerDistanceToLocationAlongRoute(self.ego_vehicles[0],

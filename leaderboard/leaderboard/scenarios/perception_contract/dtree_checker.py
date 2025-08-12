@@ -1,7 +1,13 @@
 import z3
 from typing import List
 from copy import deepcopy as copy
+import subprocess
+import json
+import tempfile
+from pysmt.smtlib.parser import SmtLibParser
+from pysmt.fnode import FNode
 
+SMT2_CHECK_CODE = "\n(set-option :pp.decimal true)\n(set-option :pp.decimal_precision 10)\n(check-sat)\n(get-model)\n"
 
 class DTreeChecker:
     def __init__(self, npc_speeds: List[float] = [3.0, 15.0]):
@@ -12,20 +18,34 @@ class DTreeChecker:
             (2.4508416652679443, -1.0641621351242065),
             (2.4508416652679443, 1.0641621351242065),
         ]
-        self.solver = z3.Solver()
         self.scenario_start_time = 43.4
-        self.scenario_end_time = 73.4
+        self.scenario_end_time = 53.4
         self.fps = 2
         self.npc_starting = [
-            [162.85765075683594, 37.39452362060547],
-            [162.8581085205078, 37.02200698852539],
-            [161.21482849121094, 37.392520904541016],
-            [161.2152862548828, 37.02000427246094],
+            [292.85765075683594, 57.39452362060547],
+            [292.8581085205078, 37.02200698852539],
+            [31.2152862548828, 37.02000427246094],
+            [31.21482849121094, 57.392520904541016],
         ]
         self.npc_forward = [-0.9999862909317017, -0.0012179769109934568]
         self.npc_speeds = npc_speeds
+        self.cexes = []
 
-    def is_in_unsafe_region(
+    @staticmethod
+    def _remove_qn_marks(s: str) -> str:
+        """
+        Remove question marks from the string
+        """
+        return s.replace("?", "")
+
+    def _get_solver(self):
+        solver = z3.Solver()
+        solver.set("timeout", 1000 * 60 * 15)  # 10 minutes timeout
+        solver.set("model", True)
+        solver.set("unsat_core", True)
+        return solver
+
+    def is_in_npc(
         self, x: z3.ArithRef, y: z3.ArithRef, s: z3.ArithRef, t: z3.ArithRef
     ) -> z3.BoolRef:
         """
@@ -123,11 +143,11 @@ class DTreeChecker:
             )
         )
 
-        """
-        M of coordinates (x,y) is inside the rectangle iff
-        (0<AM⋅AB<AB⋅AB)∧(0<AM⋅AD<AD⋅AD) where . is the dot product,
-        where A is the first vertex of the rectangle, B is the second vertex, and D is the fourth vertex.
-        """
+        # """
+        #     M of coordinates (x,y) is inside the rectangle iff
+        #     (0<AM⋅AB<AB⋅AB)∧(0<AM⋅AD<AD⋅AD) where . is the dot product,
+        #     where A is the first vertex of the rectangle, B is the second vertex, and D is the fourth vertex.
+        # """
         A = (npc_x_0, npc_y_0)
         B = (npc_x_1, npc_y_1)
         D = (npc_x_3, npc_y_3)
@@ -142,33 +162,33 @@ class DTreeChecker:
         # Check if the point (x, y) is inside the bounding box of the NPC
         return z3.And(*predicates)
 
-    def is_in_safe_region(
+    def is_in_ego_actor(
         self, x: z3.ArithRef, y: z3.ArithRef, ego_point: List[z3.ArithRef]
     ) -> z3.BoolRef:
         if len(ego_point) != 4:
             raise ValueError(
                 "Ego point must be a list of 4 elements: [x, y, cos(yaw), sin(yaw)]"
             )
-        ego_x, ego_y, cos_yaw, sin_yaw = ego_point
+        ego_x, ego_y, sin_yaw, cos_yaw = ego_point
         predicates = []
 
         # get the vertices of the ego bounding box
         ego_bbox_transformed = []
-        for vertex in self.ego_bbox:
-            transformed_vertex = (vertex[0] + ego_x, vertex[1] + ego_y)
-            ego_bbox_transformed.append(transformed_vertex)
-
         # Rotate the bounding box vertices by the yaw angle
         rotated_bbox = []
-        for vertex in ego_bbox_transformed:
+        for vertex in self.ego_bbox:
             rotated_x = vertex[0] * cos_yaw - vertex[1] * sin_yaw
             rotated_y = vertex[0] * sin_yaw + vertex[1] * cos_yaw
             rotated_bbox.append((rotated_x, rotated_y))
 
+        for vertex in rotated_bbox:
+            transformed_vertex = (vertex[0] + ego_x, vertex[1] + ego_y)
+            ego_bbox_transformed.append(transformed_vertex)
+
         # Check if the point (x, y) is inside the rotated bounding box
-        A = rotated_bbox[0]
-        B = rotated_bbox[1]
-        D = rotated_bbox[3]  # Fourth vertex
+        A = ego_bbox_transformed[0]
+        B = ego_bbox_transformed[1]
+        D = ego_bbox_transformed[3]  # Fourth vertex
         M = (x, y)
         AM_AB = ((M[0] - A[0]) * (B[0] - A[0])) + ((M[1] - A[1]) * (B[1] - A[1]))
         AM_AD = ((M[0] - A[0]) * (D[0] - A[0])) + ((M[1] - A[1]) * (D[1] - A[1]))
@@ -179,8 +199,10 @@ class DTreeChecker:
         )
         return z3.And(*predicates)
 
-    def is_region_safe(self, conjunct: z3.BoolRef, pred_len: int = 2) -> z3.BoolRef:
-        t = z3.Real("t")
+    def is_collision_present(
+        self, conjunct: z3.BoolRef, pred_len: int = 2
+    ) -> z3.BoolRef:
+        t = z3.Real("time")
         s = z3.Real("s")
 
         x = z3.Real("x")
@@ -188,8 +210,8 @@ class DTreeChecker:
 
         x_pred = [z3.Real(f"x_{i}") for i in range(pred_len)]
         y_pred = [z3.Real(f"y_{i}") for i in range(pred_len)]
-        cos_yaw_pred = [z3.Real(f"cos_{i}") for i in range(pred_len)]
-        sin_yaw_pred = [z3.Real(f"sin_{i}") for i in range(pred_len)]
+        sin_yaw_pred = [z3.Real(f"sin_yaw_{i}") for i in range(pred_len)]
+        cos_yaw_pred = [z3.Real(f"cos_yaw_{i}") for i in range(pred_len)]
 
         predicates = []
 
@@ -199,20 +221,59 @@ class DTreeChecker:
             predicates.append(cos_yaw_pred[i] ** 2 + sin_yaw_pred[i] ** 2 == 1)
             ego_preds.append(
                 z3.And(
-                    self.is_in_safe_region(
-                        x, y, [x_pred[i], y_pred[i], cos_yaw_pred[i], sin_yaw_pred[i]]
+                    self.is_in_ego_actor(
+                        x, y, [x_pred[i], y_pred[i], sin_yaw_pred[i], cos_yaw_pred[i]]
                     ),
-                    self.is_in_unsafe_region(x, y, s, t + (i / self.fps)),
+                    self.is_in_npc(x, y, s, t + (i / self.fps)),
                 )
             )
 
         predicates.append(z3.Or(*ego_preds))
-        predicates.append(t >= 0)
+        predicates.append(t >= self.scenario_start_time)
+        predicates.append(t <= self.scenario_end_time)
         predicates.append(conjunct)
 
         return z3.And(*predicates)
 
-    def get_cex(self, conjunct: z3.BoolRef, pred_len: int = 2) -> List[float]:
+    def _to_float(self, value: FNode) -> float:
+        """
+        Convert a FNode to a float value.
+        Args:
+            value (FNode): The FNode to convert.
+        Returns:
+            float: The float value of the FNode.
+        """
+        value = str(value)
+        if "/" in value:
+            numerator, denominator = value.split("/")
+            return float(numerator) / float(denominator)
+        else:
+            return float(value)
+
+    def _is_not_prev_seen_cex(self) -> z3.BoolRef:
+        """
+        Add constraints to the solver to avoid previously seen counterexamples.
+        Returns:
+            z3.BoolRef: A Z3 expression that is True if the current counterexample is not in the seen set.
+        """
+        if len(self.cexes) == 0:
+            return None
+        constraints = []
+        for cex in self.cexes:
+            cex_constraints = []
+            time = cex[0]
+            cex_constraints.append(z3.Real("time") != time)
+            for i in range((len(cex) - 1) // 4):
+                cex_constraints.append(z3.Real(f"x_{i}") != cex[1 + i * 4])
+                cex_constraints.append(z3.Real(f"y_{i}") != cex[2 + i * 4])
+                cex_constraints.append(z3.Real(f"sin_yaw_{i}") != cex[3 + i * 4])
+                cex_constraints.append(z3.Real(f"cos_yaw_{i}") != cex[4 + i * 4])
+            constraints.append(z3.And(*cex_constraints))
+        return z3.Not(z3.Or(*constraints))
+
+    def get_cex(
+        self, solver: z3.Solver, conjunct: z3.BoolRef, pred_len: int = 2
+    ) -> List[float]:
         """
         Get a counterexample for the given conjunct.
         Args:
@@ -221,32 +282,61 @@ class DTreeChecker:
         Returns:
             List[float]: A list of values representing the counterexample.
         """
-        self.solver.push()
-        self.solver.add(self.is_region_safe(conjunct, pred_len))
-        if self.solver.check() == z3.sat:
-            model = self.solver.model()
-            cex = {
-                "time" : None,
-            }
-            for i in range(pred_len):
-                cex[f"x_{i}"] = None
-                cex[f"y_{i}"] = None
-                cex[f"cos_yaw_{i}"] = None
-                cex[f"sin_yaw_{i}"] = None
-            model = DTreeChecker.z3_model_to_dict(model, cex)
-            print("Counterexample found:", model)
-            self.solver.pop()
-            
-            datapoint = [model["time"]]
-            for i in range(pred_len):
-                datapoint.append(model[f"x_{i}"])
-                datapoint.append(model[f"y_{i}"])
-                datapoint.append(model[f"cos_yaw_{i}"])
-                datapoint.append(model[f"sin_yaw_{i}"])
+        solver.push()
+        # solver.add(self.is_region_safe(conjunct, pred_len))
+        solver.add(self.is_collision_present(conjunct, pred_len))
 
-            return datapoint
-        else:
-            self.solver.pop()
+        cex_new = self._is_not_prev_seen_cex()
+        if cex_new is not None:
+            solver.add(cex_new)
+
+        current_formula = solver.sexpr()
+        current_formula += SMT2_CHECK_CODE
+        model = None
+        with tempfile.NamedTemporaryFile(mode='w+t', suffix=".smt2") as f:
+            f.write(current_formula)
+            f.flush()
+            f.seek(0)
+            cmd = f"z3 -smt2 unsat_core=true -T:600 {f.name}"
+            print(f"Running command: {cmd}")
+            proc = subprocess.Popen(
+                cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = proc.communicate()
+            if proc.returncode != 0:
+                print("Error running Z3 command:", stderr.decode())
+                return []
+
+            parser = SmtLibParser()
+            output_str = stdout.decode().strip().splitlines()
+            status = output_str[0].strip()
+            if status == "sat":
+                model_string = output_str[1:]
+                model_string = "\n".join(model_string)
+                model_string = DTreeChecker._remove_qn_marks(model_string)
+                model_string = model_string.strip(" ").strip("\n")
+                print("Model string:", model_string)
+                with tempfile.NamedTemporaryFile(mode='w+t', suffix=".smt2") as f1:
+                    if model_string:
+                        f1.write(model_string)
+                        f1.flush()
+                        f1.seek(0)
+
+                        model = parser.parse_model(f1)
+                        print("Model:", model[0])
+                        new_model = {}
+                        for k, v in model[0].items():
+                            new_model[str(k)] = self._to_float(v)
+
+                        datapoint = [new_model["time"]]
+                        for i in range(pred_len):
+                            datapoint.append(new_model[f"x_{i}"])
+                            datapoint.append(new_model[f"y_{i}"])
+                            datapoint.append(new_model[f"sin_yaw_{i}"])
+                            datapoint.append(new_model[f"cos_yaw_{i}"])
+
+                        return datapoint
+                
             return []
 
     def candidate_to_conjuncts(self, candidate: z3.BoolRef):
@@ -303,11 +393,15 @@ class DTreeChecker:
             bool: True if the candidate is safe, False otherwise.
         """
         cexs = []
+        solver = self._get_solver()
         conjuncts = list(self.candidate_to_conjuncts(candidate))
+        print(f"Checking {len(conjuncts)} conjuncts for safety.")
         for conjunct in conjuncts:
-            cex = self.get_cex(conjunct, pred_len)
+            print(f"Checking conjunct: {conjunct}")
+            cex = self.get_cex(solver, conjunct, pred_len)
             if len(cex) > 0:
                 cexs.append(cex)
+                self.cexes.append(cex)
         if len(cexs) > 0:
             print(f"Counterexamples found: {cexs}")
         else:
@@ -329,7 +423,10 @@ class DTreeChecker:
                         value.numerator().as_long() / value.denominator().as_long()
                     )
                 elif isinstance(value, z3.AlgebraicNumRef):
-                    res[key] = z3.simplify(value).approx()
+                    value = z3.simplify(value).approx()
+                    res[key] = (
+                        value.numerator().as_long() / value.denominator().as_long()
+                    )
                 else:
                     res[key] = z3.FPVal(value, z3.Float64())
             elif isinstance(value, z3.BoolRef):
@@ -342,3 +439,5 @@ class DTreeChecker:
 if __name__ == "__main__":
     checker = DTreeChecker()
     # Example usage
+    pred = checker.is_collision_present(z3.BoolVal(True), pred_len=2)
+    print("Predicates for collision check:", pred)

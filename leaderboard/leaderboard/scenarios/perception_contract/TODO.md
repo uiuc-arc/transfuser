@@ -1,0 +1,6 @@
+- [x] Fix safety checking
+- [x] Add counter examples to the dataset automatically
+- [x] Re learn the decision tree
+- [x] Automate this from a driver script
+- [ ] Let it run for ~2 hours
+- [ ] Measure the generalizability of the decision tree by using it in scenario_manager_local.py

@@ -3,6 +3,7 @@ import shutil
 import z3
 import json
 import itertools
+import sys
 
 from dtree_checker import DTreeChecker
 from dtree_learner import DTreeLearner
@@ -13,13 +14,24 @@ class PCSynthesis:
         self.dataset_path = dataset_path
 
         state_var = ["time"]
-        perception_vars = ["x_0", "y_0", "sin_yaw_0", "cos_yaw_0", "x_1", "y_1", "sin_yaw_1", "cos_yaw_1"]
+        perception_vars = [
+            "x_0",
+            "y_0",
+            "sin_yaw_0",
+            "cos_yaw_0",
+            "x_1",
+            "y_1",
+            "sin_yaw_1",
+            "cos_yaw_1",
+        ]
         self.base_features = state_var + perception_vars
         self.dtree_learner = DTreeLearner(base_features=self.base_features)
 
-        self.npc_min_speed = 3.0
+        self.npc_min_speed = 2.0
         self.npc_max_speed = 15.0
-        self.dtree_checker = DTreeChecker(npc_speeds=[self.npc_min_speed, self.npc_max_speed])
+        self.dtree_checker = DTreeChecker(
+            npc_speeds=[self.npc_min_speed, self.npc_max_speed]
+        )
 
     def mk_temp_dataset(self, dataset_path):
         """
@@ -40,10 +52,10 @@ class PCSynthesis:
     def learn_dtree(self, dataset="dataset/dataset"):
         dataset = self.mk_temp_dataset(dataset)
         self.dtree_learner.write_features(dataset)
-        pre = self.dtree_learner.learn(dataset=dataset)
+        pre = self.dtree_learner.learn(dataset_name=dataset)
         print(f"Learned decision tree: {pre}")
         return pre
-    
+
     def check_dtree(self, pre, pred_len=2):
         """
         Check the decision tree for safety.
@@ -57,39 +69,38 @@ class PCSynthesis:
         return cexs
 
     def test(self):
+        self.dtree_learner.generate_features()
         tree = self.dtree_learner.get_pre_from_json("out/dataset.json")
         cexs = self.dtree_checker.check(tree, pred_len=2)
         if len(cexs) > 0:
             print(f"Counterexamples found: {cexs}")
         else:
             print("No counterexamples found, the region is safe.")
-        _ = self.dtree_learner.add_cexs("out/dataset.data", cexs[0])
 
     def run(self):
         """
         Run the PCSynthesis process.
         """
-        max_iters = 10
+        max_iters = 1000
         for i in range(max_iters):
             print(f"Iteration {i + 1}/{max_iters}")
             pre = self.learn_dtree(self.dataset_path)
             cexs = self.check_dtree(pre)
             if len(cexs) > 0:
-                print(f"Counterexamples found: {cexs}")
                 for cex in cexs:
                     print(f"Counterexample: {cex}")
                 # Update the dataset with counterexamples
                 self.dataset_path = self.dtree_learner.add_cexs(self.dataset_path, cexs)
             else:
-                print("No counterexamples found, the region is safe.")
                 break
 
 
 if __name__ == "__main__":
-    dataset_path = "dataset/new_dataset.data"
+    if len(sys.argv) < 2:
+        dataset_path = "dataset/new_dataset123.data"
+    else:
+        dataset_path = sys.argv[1]
     pcs = PCSynthesis(dataset_path)
-    pcs.run()
+    # pcs.run()
+    pcs.test()
     print("PCSynthesis completed.")
-            
-
-    

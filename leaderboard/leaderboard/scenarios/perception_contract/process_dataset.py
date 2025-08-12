@@ -7,7 +7,7 @@ import z3
 import json
 import pandas as pd
 import tqdm
-
+import copy
 
 class SafetyChecker:
 
@@ -19,6 +19,22 @@ class SafetyChecker:
         pass
 
     @staticmethod
+    def is_in_box(point, vertices):
+        """
+        (0<=AM⋅AB<=AB⋅AB)∧(0<=AM⋅AD<=AD⋅AD)
+        """
+        A = vertices[0]
+        B = vertices[1]
+        D = vertices[3]
+        M = point
+        AM_AB = ((M[0] - A[0]) * (B[0] - A[0])) + ((M[1] - A[1]) * (B[1] - A[1]))
+        AM_AD = ((M[0] - A[0]) * (D[0] - A[0])) + ((M[1] - A[1]) * (D[1] - A[1]))
+        AB_AB = ((B[0] - A[0]) ** 2) + ((B[1] - A[1]) ** 2)
+        AD_AD = ((D[0] - A[0]) ** 2) + ((D[1] - A[1]) ** 2)
+
+        return z3.And(AM_AB >= 0, AM_AB <= AB_AB, AM_AD >= 0, AM_AD <= AD_AD)
+
+    @staticmethod
     def filter_points(vertices):
         """
         If len(vertices) is > 4, filter them to keep the four unique points
@@ -27,7 +43,7 @@ class SafetyChecker:
             unique_vertices = []
             for vertex in vertices:
                 for unique_vertex in unique_vertices:
-                    if np.allclose(vertex, unique_vertex, atol=1e-2):
+                    if np.allclose(vertex, unique_vertex, atol=1e-1):
                         break
                 else:
                     unique_vertices.append(vertex)
@@ -39,11 +55,20 @@ class SafetyChecker:
         """
         Find vertex pairs that are at least 'distance' apart.
         """
+        if len(vertices) > 4:
+            raise ValueError("more than 4 vertices provided, expected 4.")
         for i in range(len(vertices)):
             for j in range(i + 1, len(vertices)):
                 dist = np.linalg.norm(np.array(vertices[i]) - np.array(vertices[j]))
                 if np.isclose(dist, distance, atol=1e-2) or dist >= distance:
                     return (vertices[i], vertices[j])
+        print(
+            "No vertices found that are at least 'distance' apart. Given vertices:",
+            vertices,
+            "Distance:",
+            distance,
+        )
+        raise ValueError("Bad vertices")
 
     @staticmethod
     def to_xyyaw(vertices, x_dim):
@@ -60,36 +85,36 @@ class SafetyChecker:
         y = np.mean(vertices[:, 1]).item()
         return x, y, yaw
 
-    @staticmethod
-    def is_in_conv_polytope(point: Tuple, polytope: List[Tuple]) -> z3.ExprRef:
-        """
-        Check if a point is inside a convex polytope defined by its vertices.
-        Args:
-            point (tuple): A tuple representing the point (could be 2D, 3D, etc.).
-            polytope (list): A list of points that represent the vertices of the convex polytope.
-        Returns:
-            z3.Expr: A Z3 expression that is True if the point is inside the polytope.
-        """
-        hull = sp.ConvexHull(polytope)
-        equations = hull.equations
+    # @staticmethod
+    # def is_in_conv_polytope(point: Tuple, polytope: List[Tuple]) -> z3.ExprRef:
+    #     """
+    #     Check if a point is inside a convex polytope defined by its vertices.
+    #     Args:
+    #         point (tuple): A tuple representing the point (could be 2D, 3D, etc.).
+    #         polytope (list): A list of points that represent the vertices of the convex polytope.
+    #     Returns:
+    #         z3.Expr: A Z3 expression that is True if the point is inside the polytope.
+    #     """
+    #     hull = sp.ConvexHull(polytope)
+    #     equations = hull.equations
 
-        if len(equations[0]) != (len(point) + 1):
-            print(f"Point: {point}, Polytope: {polytope}")
-            raise ValueError("Point dimension does not match polytope dimension.")
+    #     if len(equations[0]) != (len(point) + 1):
+    #         print(f"Point: {point}, Polytope: {polytope}")
+    #         raise ValueError("Point dimension does not match polytope dimension.")
 
-        # Create a list of inequalities for the point to be inside the polytope
-        inequalities = []
-        for eq in equations:
-            coefficients = eq[:-1]  # All but the last coefficient
-            constant = eq[-1]  # The last coefficient is the constant term
-            inequality = (
-                sum(coeff * point[i] for i, coeff in enumerate(coefficients))
-                <= -constant
-            )
-            inequalities.append(inequality)
+    #     # Create a list of inequalities for the point to be inside the polytope
+    #     inequalities = []
+    #     for eq in equations:
+    #         coefficients = eq[:-1]  # All but the last coefficient
+    #         constant = eq[-1]  # The last coefficient is the constant term
+    #         inequality = (
+    #             sum(coeff * point[i] for i, coeff in enumerate(coefficients))
+    #             <= -constant
+    #         )
+    #         inequalities.append(inequality)
 
-        # Combine all inequalities into a single expression
-        return z3.And(*inequalities)
+    #     # Combine all inequalities into a single expression
+    #     return z3.And(*inequalities)
 
     @staticmethod
     def is_in_ego_bbox(
@@ -106,19 +131,21 @@ class SafetyChecker:
         """
         # ego_x, ego_y, ego_yaw = ego_point
         # Transform the ego bounding box by adding the center position
-        ego_bbox_transformed = []
-        for vertex in ego_bbox:
-            transformed_vertex = (vertex[0] + ego_x, vertex[1] + ego_y)
-            ego_bbox_transformed.append(transformed_vertex)
+        _ego_bbox = copy.deepcopy(ego_bbox)
         # Rotate the bounding box vertices by the yaw angle
-        ego_bbox_transformed = [
+        _ego_bbox = [
             (
                 vertex[0] * np.cos(ego_yaw) - vertex[1] * np.sin(ego_yaw),
                 vertex[0] * np.sin(ego_yaw) + vertex[1] * np.cos(ego_yaw),
             )
-            for vertex in ego_bbox_transformed
+            for vertex in _ego_bbox
         ]
-        return SafetyChecker.is_in_conv_polytope((x, y), ego_bbox_transformed)
+        ego_bbox_transformed = []
+        for vertex in _ego_bbox:
+            transformed_vertex = (vertex[0] + ego_x, vertex[1] + ego_y)
+            ego_bbox_transformed.append(transformed_vertex)
+        res = SafetyChecker.is_in_box((x, y), ego_bbox_transformed)
+        return res
 
     @staticmethod
     def is_in_other_bbox(
@@ -130,46 +157,50 @@ class SafetyChecker:
         prediction_at_time: float,
         timestep: int,  # num frames from prediction_at_time
         scenario_start_time: float,
+        scenario_end_time: float,
         fps: int,
         npc_starting: List[Tuple[float, float]],
         npc_forward: Tuple[float, float],
     ) -> z3.ExprRef:
 
-        x_forward = npc_forward[0]
-        y_forward = npc_forward[1]
+        predicates = []
+        effective_time = prediction_at_time + (timestep * (1.0 / fps))
 
-        effective_time = np.maximum(
-            0, (prediction_at_time + (timestep * (1.0 / fps))) - scenario_start_time
+        if effective_time < scenario_start_time:
+            predicates.append(s == 0)
+        elif scenario_start_time <= effective_time <= scenario_end_time:
+            predicates.append(z3.And(s >= s_min, s <= s_max))
+        else:
+            predicates.append(s == 0)
+
+        npc_x_0 = z3.Real("npc_x_0")
+        npc_y_0 = z3.Real("npc_y_0")
+        npc_x_1 = z3.Real("npc_x_1")
+        npc_y_1 = z3.Real("npc_y_1")
+        npc_x_2 = z3.Real("npc_x_2")
+        npc_y_2 = z3.Real("npc_y_2")
+        npc_x_3 = z3.Real("npc_x_3")
+        npc_y_3 = z3.Real("npc_y_3")
+
+        t = np.maximum(0, effective_time - scenario_start_time)
+        predicates.append(
+            z3.And(
+                npc_x_0 == (npc_starting[0][0] + npc_forward[0] * s * t),
+                npc_y_0 == (npc_starting[0][1] + npc_forward[1] * s * t),
+                npc_x_1 == (npc_starting[1][0] + npc_forward[0] * s * t),
+                npc_y_1 == (npc_starting[1][1] + npc_forward[1] * s * t),
+                npc_x_2 == (npc_starting[2][0] + npc_forward[0] * s * t),
+                npc_y_2 == (npc_starting[2][1] + npc_forward[1] * s * t),
+                npc_x_3 == (npc_starting[3][0] + npc_forward[0] * s * t),
+                npc_y_3 == (npc_starting[3][1] + npc_forward[1] * s * t),
+            ),
         )
 
-        move_vector_min = (
-            x_forward * s_min * effective_time,
-            y_forward * s_min * effective_time,
-        )
-        move_vector_max = (
-            x_forward * s_max * effective_time,
-            y_forward * s_max * effective_time,
-        )
+        npc_vertices = [(npc_x_0, npc_y_0), (npc_x_1, npc_y_1), (npc_x_2, npc_y_2), (npc_x_3, npc_y_3)]
 
-        npc_min_bbox = []
-        npc_max_bbox = []
-
-        for vertex in npc_starting:
-            transformed_vertex_min = (
-                vertex[0] + move_vector_min[0],
-                vertex[1] + move_vector_min[1],
-                s_min,
-            )
-            transformed_vertex_max = (
-                vertex[0] + move_vector_max[0],
-                vertex[1] + move_vector_max[1],
-                s_max,
-            )
-            npc_min_bbox.append(transformed_vertex_min)
-            npc_max_bbox.append(transformed_vertex_max)
-
-        other_bbox_transformed = npc_min_bbox + npc_max_bbox
-        return SafetyChecker.is_in_conv_polytope((x, y, s), other_bbox_transformed)
+        res = SafetyChecker.is_in_box((x, y), npc_vertices)
+        predicates.append(res)
+        return z3.And(*predicates)
 
     @staticmethod
     def is_safe(
@@ -180,6 +211,7 @@ class SafetyChecker:
         s_min: float,
         s_max: float,
         scenario_start_time: float,
+        scenario_end_time: float,
         fps: int,
         npc_starting: List[Tuple[float, float]],
         npc_forward: Tuple[float, float],
@@ -200,6 +232,7 @@ class SafetyChecker:
                     prediction_at_time,
                     t,
                     scenario_start_time,
+                    scenario_end_time,
                     fps,
                     npc_starting,
                     npc_forward,
@@ -219,6 +252,7 @@ class SafetyChecker:
         s_min: float,
         s_max: float,
         scenario_start_time: float,
+        scenario_end_time: float,
         npc_starting: List[Tuple[float, float]],
         npc_forward: Tuple[float, float],
     ):
@@ -235,6 +269,7 @@ class SafetyChecker:
                 s_min,
                 s_max,
                 scenario_start_time,
+                scenario_end_time,
                 fps,
                 npc_starting,
                 npc_forward,
@@ -253,6 +288,7 @@ class SafetyChecker:
         s_min,
         s_max,
         scenario_start_time,
+        scenario_end_time,
         npc_starting,
         npc_forward,
     ) -> z3.ExprRef:
@@ -266,6 +302,7 @@ class SafetyChecker:
             s_min,
             s_max,
             scenario_start_time,
+            scenario_end_time,
             npc_starting,
             npc_forward,
         )
@@ -335,7 +372,9 @@ class SafetyChecker:
             dataset.append(datapoint)
 
         if len(dataset) == 0:
-            dataset = [[ego_x, ego_y, ego_yaw.item()] for _ in range(num_frames)]
+            if type(ego_yaw) is not float:
+                ego_yaw = ego_yaw.item()
+            dataset = [[ego_x, ego_y, ego_yaw] for _ in range(num_frames)]
         elif len(dataset) < num_frames:
             last_point = dataset[-1]
             pad_size = num_frames - len(dataset)
@@ -357,6 +396,7 @@ class SafetyChecker:
         s_min,
         s_max,
         scenario_start_time,
+        scenario_end_time,
         npc_starting,
         npc_forward,
     ):
@@ -370,6 +410,7 @@ class SafetyChecker:
             s_min,
             s_max,
             scenario_start_time,
+            scenario_end_time,
             npc_starting,
             npc_forward,
         )
@@ -393,6 +434,22 @@ class SafetyChecker:
             )  # Safe, no collision exists for the given parameters
 
 
+# if __name__ == "__main__":
+#     dataset = pd.DataFrame()
+#     for i in np.arange(2.0, 15.0, 0.5):
+#         speed = i
+#         datapoints = []
+#         with open(f"../../../../datasets_v1/dataset_velocity_{i}.json", "r") as f:
+#             datapoints = json.load(f)
+#         for datapoint in datapoints:
+#             datapoint["speed"] = speed
+#         dataset = pd.concat(
+#             [dataset, pd.DataFrame(datapoints)],
+#         )
+#     dataset.to_csv("transformed_dataset.csv", index=False)
+#     print("Dataset transformed and saved to 'transformed_dataset.csv'.")
+#     exit(0)
+
 if __name__ == "__main__":
     dataset = None
     dataset_path = "transformed_dataset.csv" if len(sys.argv) < 2 else sys.argv[1]
@@ -410,13 +467,28 @@ if __name__ == "__main__":
         start_time = row["timestamp"]
         num_frames = 2
         fps = 2
-        s_min = 3.0
+        s_min = 2.0
         s_max = 15.0
-        scenario_start_time = 1.0
-        npc_starting = json.loads(row["npc_bbox"])
+        scenario_start_time = 43.4
+        scenario_end_time = 53.4
+        npc_starting = [
+            [292.85765075683594, 57.39452362060547],
+            [292.8581085205078, 37.02200698852539],
+            [31.21482849121094, 57.392520904541016],
+            [31.2152862548828, 37.02000427246094],
+            # [162.85592651367188 + 30, 37.39451599121094 + 10],
+            # [162.85638427734375 + 30, 37.02199935913086],
+            # [161.2130889892578 - 30, 37.392520904541016 + 10],
+            # [161.2135467529297 - 30, 37.02000427246094],
+        ]
         npc_forward = json.loads(row["npc_forward"])
         solver = z3.Solver()
         checker = SafetyChecker()
+        if start_time < scenario_start_time:
+            print(
+                f"Skipping datapoint at index {index} with start_time {start_time} < scenario_start_time {scenario_start_time}"
+            )
+            continue
         result = checker.get_datapoint(
             ego_bbox=ego_bbox,  # var
             start_time=start_time,  # var
@@ -429,6 +501,7 @@ if __name__ == "__main__":
             s_min=s_min,
             s_max=s_max,
             scenario_start_time=scenario_start_time,
+            scenario_end_time=scenario_end_time,
             npc_starting=npc_starting,  # fixed
             npc_forward=npc_forward,  # fixed
         )

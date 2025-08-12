@@ -1,0 +1,78 @@
+{
+    "params": {
+        "max_depth": 255,
+        "min_samples_leaf": 1,
+        "min_samples_split": 2,
+        "min_impurity_decrease": 0.0,
+        "random_state": 42,
+        "n_pair": 9,
+        "gamma": 1.0,
+        "max_iter": 100,
+        "relative_change": 0.001,
+        "use_oblique": true,
+        "categories": [],
+        "ccp_alpha": 0.0,
+        "task": false,
+        "n_classes": 2,
+        "n_features": 9,
+        "cat_": false
+    },
+    "tree": {
+        "n_samples": 2076,
+        "impurity": 0.015295458511068727,
+        "is_leaf": false,
+        "is_oblique": false,
+        "feature_idx": 2,
+        "missing_go_left": true,
+        "value": 0.9922928709055877,
+        "threshold": 17.22313756610582,
+        "left": {
+            "n_samples": 15,
+            "impurity": 0.0,
+            "is_leaf": true,
+            "value": 0.0
+        },
+        "right": {
+            "n_samples": 2061,
+            "impurity": 0.0009699318764109233,
+            "is_leaf": false,
+            "is_oblique": true,
+            "weights": [
+                0.9011036607550914,
+                0.5201654193951294,
+                -0.07176794513239208,
+                -0.5591828246704237,
+                1.0,
+                0.43361018444639987,
+                -0.2743966872763534,
+                -0.2895336692516279,
+                0.4335408074454318
+            ],
+            "features": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+            ],
+            "threshold": 96.1076742018921,
+            "value": 0.9995147986414362,
+            "left": {
+                "n_samples": 1,
+                "impurity": 0.0,
+                "is_leaf": true,
+                "value": 0.0
+            },
+            "right": {
+                "n_samples": 2060,
+                "impurity": 0.0,
+                "is_leaf": true,
+                "value": 1.0
+            }
+        }
+    }
+}

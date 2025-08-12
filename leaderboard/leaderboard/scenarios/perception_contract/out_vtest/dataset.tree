@@ -1,0 +1,6 @@
+id="See5/C5.0 2.07 GPL Edition 2025-08-03"
+entries="1"
+type="2" class="true" freq="2060,4" att="((1*x_0) + (1*sin_yaw_0) + (-1*cos_yaw_0) + (1*x_1) + (-1*sin_yaw_1) + (1*cos_yaw_1))" forks="3" cut="173.57027"
+type="0" class="true"
+type="0" class="false" freq="0,4"
+type="0" class="true" freq="2060,0"

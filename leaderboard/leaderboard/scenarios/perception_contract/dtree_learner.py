@@ -3,6 +3,11 @@ import json
 import itertools
 import subprocess
 
+# from obliquetree.utils import export_tree
+# from obliquetree import Classifier
+import pandas as pd
+import numpy as np
+
 
 class DTreeLearner:
     def __init__(self, base_features=[], path_to_c5="./c50exact/c5.0dbg"):
@@ -37,7 +42,7 @@ class DTreeLearner:
                 res.append((name, (var_coeff_map, expr)))
         return res
 
-    def write_features(self, path):
+    def generate_features(self):
         for k in range(2, len(self.base_features) + 1):
             self.derived_feature_map.update(self._generate_derived_features(k))
 
@@ -48,6 +53,8 @@ class DTreeLearner:
                 for var, (coeff_map, _) in self.derived_feature_map.items()
             ]
         )
+
+    def write_features(self, path):
         file_lines = (
             ["precondition."]
             + [f"{var}:  continuous." for var in self.base_features]
@@ -60,14 +67,32 @@ class DTreeLearner:
         with open(path + ".names", "w") as f:
             f.write("\n".join(file_lines))
 
-    def learn(self, dataset="dataset/dataset"):
-        self.write_features(dataset)
-        proc = subprocess.Popen(self.cmd + dataset, shell=True)
+    def learn(self, dataset_name="dataset/dataset"):
+        self.generate_features()
+        self.write_features(dataset_name)
+
+        # ObliqueTree Classifier
+        # dataset = pd.read_csv(dataset_name + ".data", header=None)
+        # X = dataset.iloc[:, :-1]
+        # y = dataset.iloc[:, -1]
+        # clf = Classifier(
+        #     use_oblique=True,
+        #     max_depth=-1,
+        #     random_state=42,
+        #     n_pair=X.shape[1],
+        #     categories=[]
+        # )
+        # clf.fit(X, y)
+        # print(f"Writing to {dataset_name}.json")
+        # export_tree(clf, f"{dataset_name}.json")
+        # ObliqueTree Classifier
+
+        proc = subprocess.Popen(self.cmd + dataset_name, shell=True)
         output, error = proc.communicate()
         if proc.returncode != 0:
             raise RuntimeError(f"Error running C5.0: {error}")
 
-        return self.get_pre_from_json(f"{dataset}.json")
+        return self.get_pre_from_json(f"{dataset_name}.json")
 
     def get_pre_from_json(self, path):
         try:
@@ -113,6 +138,16 @@ class DTreeLearner:
         else:
             raise ValueError("error parsing the json object as a binary decision tree)")
 
+    def parse_oblique_tree(self, tree):
+        """
+        Parse the oblique tree structure into a Z3 expression.
+        Args:
+            tree (dict): The oblique tree structure.
+        Returns:
+            z3.BoolRef: The Z3 expression representing the decision tree.
+        """
+        raise NotImplementedError
+
     def add_cexs(self, dataset_path, cexs):
         """
         Update the dataset with counterexamples.
@@ -122,10 +157,18 @@ class DTreeLearner:
         Returns:
             str: Path to the updated dataset.
         """
+        existing_points = set()
+        with open(dataset_path, "r") as f:
+            lines = f.readlines()
+            existing_points = set(line.strip() for line in lines)
         with open(dataset_path, "a") as f:
-            for cex in cexs:            
+            for cex in cexs:
                 string = ",".join(map(str, cex)) + ",false\n"
-                f.write(string)
+                if string.strip() not in existing_points:
+                    print(f"Adding counterexample: {string.strip()}")
+                    f.write(string)
+                else:
+                    print(f"Counterexample already exists: {string.strip()}")
         return dataset_path
 
 
@@ -144,5 +187,5 @@ if __name__ == "__main__":
     learner = DTreeLearner(
         base_features=input + prediction,
     )
-    tree = learner.learn(dataset="dataset/new_dataset")
+    tree = learner.get_pre_from_json("out_v1/dtree.json")
     print(tree)

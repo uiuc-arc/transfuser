@@ -1,0 +1,26 @@
+{
+    "params": {
+        "max_depth": 255,
+        "min_samples_leaf": 1,
+        "min_samples_split": 2,
+        "min_impurity_decrease": 0.0,
+        "random_state": 42,
+        "n_pair": 9,
+        "gamma": 1.0,
+        "max_iter": 100,
+        "relative_change": 0.001,
+        "use_oblique": true,
+        "categories": [],
+        "ccp_alpha": 0.0,
+        "task": false,
+        "n_classes": 1,
+        "n_features": 9,
+        "cat_": false
+    },
+    "tree": {
+        "n_samples": 2076,
+        "impurity": 0.0,
+        "is_leaf": true,
+        "value": 0.0
+    }
+}

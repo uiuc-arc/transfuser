@@ -1,0 +1,1 @@
+{"attribute":"((1*x_0) + (1*sin_yaw_0) + (-1*cos_yaw_0) + (1*x_1) + (-1*sin_yaw_1) + (1*cos_yaw_1))","cut":173.5703,"classification":0,"children":[{"attribute":"","cut":0,"classification":false,"children":null},{"attribute":"","cut":0,"classification":true,"children":null}]}
