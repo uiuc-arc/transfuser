@@ -18,24 +18,29 @@ bbox = [
 
 npc_starting = np.array(
     [
-        [162.85765075683594, 37.392520904541016],
-        [162.85765075683594, 37.02000427246094],
-        [161.21482849121094, 37.02000427246094],
-        [161.21482849121094, 37.392520904541016],
+        [31.21482849121094, 57.392520904541016],
+        [31.2152862548828, 37.02000427246094],
+        [292.8581085205078, 37.02200698852539],
+        [292.85765075683594, 57.39452362060547],
+        # [162.85765075683594, 37.392520904541016],
+        # [162.85765075683594, 37.02000427246094],
+        # [161.21482849121094, 37.02000427246094],
+        # [161.21482849121094, 37.392520904541016],
     ]
 )
 npc_forward = np.array([-0.9999862909317017, -0.0012179769109934568])
 
-datapoints = pd.read_csv("dataset/new_dataset0.data", header=None)
+datapoints = pd.read_csv("classified_dataset.csv")
 true_dps = datapoints[datapoints.iloc[:, -1] == True]\
 # slice first 100 rows
-true_dps = true_dps.iloc[:50, :]
+true_dps = true_dps.iloc[:10, :]
 false_dps = datapoints[datapoints.iloc[:, -1] == False]
 
 
 def plot_points(points):
     fig, ax = plt.subplots()
     for point in points:
+        print(f"Point: {point}")
         # plot first point
         # rotate then translate the bounding box
         newbox = np.array(bbox)
@@ -52,30 +57,31 @@ def plot_points(points):
         ax.plot(rotated_bbox[:, 0], rotated_bbox[:, 1], color="blue")
         ax.fill(rotated_bbox[:, 0], rotated_bbox[:, 1], color="blue", alpha=0.3)
 
-        # plot second point
-        box2 = []  # rotate then translate
-        rotated_box2 = np.array(bbox)
-        cos_yaw1 = point[7]
-        sin_yaw1 = point[6]
-        rotation_matrix2 = np.array([[cos_yaw1, -sin_yaw1], [sin_yaw1, cos_yaw1]])
-        rotated_bbox2 = np.dot(rotated_box2, rotation_matrix2.T)
-        for i in range(len(rotated_bbox2)):
-            rotated_bbox2[i][0] += point[4]  # x_1
-            rotated_bbox2[i][1] += point[5]
-        rotated_bbox2 = np.vstack((rotated_bbox2, rotated_bbox2[0]))  # close the polygon
-        # print(f"Rotated Box 2: {rotated_bbox2}")
+        # # plot second point
+        # box2 = []  # rotate then translate
+        # rotated_box2 = np.array(bbox)
+        # cos_yaw1 = point[7]
+        # sin_yaw1 = point[6]
+        # rotation_matrix2 = np.array([[cos_yaw1, -sin_yaw1], [sin_yaw1, cos_yaw1]])
+        # rotated_bbox2 = np.dot(rotated_box2, rotation_matrix2.T)
+        # for i in range(len(rotated_bbox2)):
+        #     rotated_bbox2[i][0] += point[4]  # x_1
+        #     rotated_bbox2[i][1] += point[5]
+        # rotated_bbox2 = np.vstack((rotated_bbox2, rotated_bbox2[0]))  # close the polygon
+        # # print(f"Rotated Box 2: {rotated_bbox2}")
 
-        ax.plot(rotated_bbox2[:, 0], rotated_bbox2[:, 1], color="red")
-        ax.fill(rotated_bbox2[:, 0], rotated_bbox2[:, 1], color="red", alpha=0.3)
+        # ax.plot(rotated_bbox2[:, 0], rotated_bbox2[:, 1], color="red")
+        # ax.fill(rotated_bbox2[:, 0], rotated_bbox2[:, 1], color="red", alpha=0.3)
 
-    for i in range(40):
+    for i in range(4):
+        speed = 2.0
         time = i / 2.0
         box = []
         for j in range(npc_starting.shape[0]):
             box.append(
                 (
-                    npc_starting[j][0] + npc_forward[0] * time,
-                    npc_starting[j][1] + npc_forward[1] * time,
+                    npc_starting[j][0] + npc_forward[0] * time * speed,
+                    npc_starting[j][1] + npc_forward[1] * time * speed,
                 )
             )
 
@@ -85,8 +91,8 @@ def plot_points(points):
         ax.plot(box[:, 0], box[:, 1], "blue")
         ax.fill(box[:, 0], box[:, 1], alpha=0.3)
 
-    ax.set_xlim(120, 170)
-    ax.set_ylim(10, 50)
+    ax.set_xlim(-200, 300)
+    ax.set_ylim(-300, 300)
     ax.invert_yaxis()
     ax.set_aspect("equal", adjustable="box")
 
@@ -109,6 +115,6 @@ if __name__ == "__main__":
             row[8]   # cos_yaw_1
         )
         points.append(point)
-    print(points)
+    # print(points)
     plot_points(points)
 

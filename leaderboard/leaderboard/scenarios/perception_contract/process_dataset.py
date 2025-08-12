@@ -12,6 +12,12 @@ import copy
 class SafetyChecker:
 
     EGO_VEHICLE_X_AXIS_LENGTH = 4.90168333  # Length of the ego vehicle in meters
+    ego_bbox = [
+        (-2.4508416652679443, 1.0641621351242065),
+        (-2.4508416652679443, -1.0641621351242065),
+        (2.4508416652679443, -1.0641621351242065),
+        (2.4508416652679443, 1.0641621351242065),
+    ]
 
     def __init__(
         self,
@@ -39,16 +45,33 @@ class SafetyChecker:
         """
         If len(vertices) is > 4, filter them to keep the four unique points
         """
-        if len(vertices) > 4:
+        if len(vertices) >= 4:
             unique_vertices = []
-            for vertex in vertices:
-                for unique_vertex in unique_vertices:
-                    if np.allclose(vertex, unique_vertex, atol=1e-1):
-                        break
-                else:
-                    unique_vertices.append(vertex)
-            return unique_vertices[:4]
-        return vertices
+            if len(vertices) > 4:
+                for vertex in vertices:
+                    for unique_vertex in unique_vertices:
+                        if np.allclose(vertex, unique_vertex, atol=1e-1):
+                            break
+                    else:
+                        unique_vertices.append(vertex)
+            else:
+                unique_vertices = vertices
+
+            sorted_unique_vertices = []
+            center = np.mean(unique_vertices, axis=0)
+            sorted_indices = np.argsort(
+                np.arctan2(
+                    [v[1] - center[1] for v in unique_vertices],
+                    [v[0] - center[0] for v in unique_vertices],
+                )
+            )
+            sorted_unique_vertices = [unique_vertices[i] for i in sorted_indices]
+            # print(f"Filtered vertices: {sorted_unique_vertices}")
+            if len(sorted_unique_vertices) != 4:
+                raise ValueError("Incorrect number of vertices, expected 4.")
+            return sorted_unique_vertices
+        elif len(vertices) < 4:
+            raise ValueError("Less than 4 vertices provided, expected 4.")
 
     @staticmethod
     def find_vertices_along_distance(vertices, distance):
@@ -57,11 +80,12 @@ class SafetyChecker:
         """
         if len(vertices) > 4:
             raise ValueError("more than 4 vertices provided, expected 4.")
-        for i in range(len(vertices)):
-            for j in range(i + 1, len(vertices)):
-                dist = np.linalg.norm(np.array(vertices[i]) - np.array(vertices[j]))
-                if np.isclose(dist, distance, atol=1e-2) or dist >= distance:
-                    return (vertices[i], vertices[j])
+        sides = [[0, 1], [1, 2], [2, 3], [3, 0]]
+        for side in sides:
+            dist = np.linalg.norm(np.array(vertices[side[0]]) - np.array(vertices[side[1]]))
+            if np.isclose(dist, distance, atol=1e-2):
+                # print(f"Found side vertices at distance {dist}: {vertices[side[0]]}, {vertices[side[1]]}")
+                return (vertices[side[0]], vertices[side[1]])
         print(
             "No vertices found that are at least 'distance' apart. Given vertices:",
             vertices,
@@ -76,13 +100,12 @@ class SafetyChecker:
         Convert vertices to x, y, yaw format.
         """
         vertices = np.array(SafetyChecker.filter_points(vertices))
+        # print(f"Converting vertices: {vertices}")
         point_a, point_b = SafetyChecker.find_vertices_along_distance(vertices, x_dim)
-        tan_yaw = (point_b[1] - point_a[1]) / (point_b[0] - point_a[0])
-        yaw = np.arctan(tan_yaw)
-        if point_b[0] < point_a[0]:
-            yaw += np.pi
+        yaw = np.arctan2((point_b[1] - point_a[1]) , (point_b[0] - point_a[0]))
         x = np.mean(vertices[:, 0]).item()
         y = np.mean(vertices[:, 1]).item()
+        # print(f"Converted vertices to x: {x}, y: {y}, yaw: {np.rad2deg(yaw)} degrees")
         return x, y, yaw
 
     # @staticmethod
@@ -118,7 +141,6 @@ class SafetyChecker:
 
     @staticmethod
     def is_in_ego_bbox(
-        ego_bbox: List[Tuple],
         x: z3.ArithRef,
         y: z3.ArithRef,
         ego_x: float,
@@ -129,22 +151,19 @@ class SafetyChecker:
         If the center of the ego vehicle follows the trajectory,
         is the point (x, y) inside the ego vehicle's bounding box at time t?
         """
-        # ego_x, ego_y, ego_yaw = ego_point
-        # Transform the ego bounding box by adding the center position
-        _ego_bbox = copy.deepcopy(ego_bbox)
         # Rotate the bounding box vertices by the yaw angle
-        _ego_bbox = [
-            (
-                vertex[0] * np.cos(ego_yaw) - vertex[1] * np.sin(ego_yaw),
-                vertex[0] * np.sin(ego_yaw) + vertex[1] * np.cos(ego_yaw),
-            )
-            for vertex in _ego_bbox
-        ]
-        ego_bbox_transformed = []
-        for vertex in _ego_bbox:
-            transformed_vertex = (vertex[0] + ego_x, vertex[1] + ego_y)
-            ego_bbox_transformed.append(transformed_vertex)
-        res = SafetyChecker.is_in_box((x, y), ego_bbox_transformed)
+        # Then translate them to the ego vehicle's position
+        rotation_matrix = np.array([
+            [np.cos(ego_yaw), -np.sin(ego_yaw)],
+            [np.sin(ego_yaw), np.cos(ego_yaw)]
+        ])
+        transformed_ego_bbox = []
+        for vertex in SafetyChecker.ego_bbox:
+            rotated_vertex = np.dot(rotation_matrix, np.array(vertex))
+            transformed_vertex = (rotated_vertex[0] + ego_x, rotated_vertex[1] + ego_y)
+            transformed_ego_bbox.append(transformed_vertex)
+
+        res = SafetyChecker.is_in_box((x, y), transformed_ego_bbox)
         return res
 
     @staticmethod
@@ -203,8 +222,7 @@ class SafetyChecker:
         return z3.And(*predicates)
 
     @staticmethod
-    def is_safe(
-        ego_bbox: List[Tuple],
+    def is_unsafe_at_t(
         predicted_point: List[float],
         prediction_at_time: float,
         t: int,
@@ -222,7 +240,7 @@ class SafetyChecker:
         predicate = z3.Exists(
             [x, y, s],
             z3.And(
-                SafetyChecker.is_in_ego_bbox(ego_bbox, x, y, *predicted_point),
+                SafetyChecker.is_in_ego_bbox(x, y, *predicted_point),
                 SafetyChecker.is_in_other_bbox(
                     x,
                     y,
@@ -261,8 +279,7 @@ class SafetyChecker:
             ego_bbox, pred_wps, ego_speed, num_frames, fps
         )
         for t in range(num_frames):
-            pred = SafetyChecker.is_safe(
-                ego_bbox,
+            pred = SafetyChecker.is_unsafe_at_t(
                 predicted_points[t],
                 prediction_at_time,
                 t,
@@ -309,6 +326,48 @@ class SafetyChecker:
         return z3.Or(*predicates), ego_trajectory
 
     @staticmethod
+    def convert_wps_to_global_coordinates(
+        pred_wps: np.ndarray,
+        ego_x: float,
+        ego_y: float,
+        ego_yaw: float,
+    ) -> np.ndarray:
+        """
+        Convert predicted waypoints to the vehicle's coordinate system.
+        """
+        pred_wps_copy = pred_wps.copy()
+        # rotate waypoints to match ego vehicle's orientation
+        cos_yaw = np.cos(ego_yaw)
+        sin_yaw = np.sin(ego_yaw)
+        rotation_matrix = np.array([[cos_yaw, -sin_yaw], [sin_yaw, cos_yaw]])
+        rotated_wps = np.dot(pred_wps_copy, rotation_matrix.T)
+        # translate waypoints to be relative to the ego vehicle's position
+        rotated_wps[:, 0] += ego_x
+        rotated_wps[:, 1] += ego_y
+        return rotated_wps
+    
+    @staticmethod
+    def convert_wps_to_vehicle_coordinates(
+        pred_wps: np.ndarray,
+        ego_x: float,
+        ego_y: float,
+        ego_yaw: float,
+    ) -> np.ndarray:
+        """
+        Convert predicted waypoints to the vehicle's coordinate system.
+        """
+        pred_wps_copy = pred_wps.copy()
+        # translate waypoints to be relative to the ego vehicle's position
+        pred_wps_copy[:, 0] -= ego_x
+        pred_wps_copy[:, 1] -= ego_y
+        # rotate waypoints to match ego vehicle's orientation
+        cos_yaw = np.cos(-ego_yaw)
+        sin_yaw = np.sin(-ego_yaw)
+        rotation_matrix = np.array([[cos_yaw, -sin_yaw], [sin_yaw, cos_yaw]])
+        rotated_wps = np.dot(pred_wps_copy, rotation_matrix.T)
+        return rotated_wps
+
+    @staticmethod
     def get_trajectory(
         ego_bbox: List[Tuple[float, float]],
         pred_wps: np.ndarray,
@@ -330,6 +389,9 @@ class SafetyChecker:
         ego_x, ego_y, ego_yaw = SafetyChecker.to_xyyaw(
             ego_bbox, SafetyChecker.EGO_VEHICLE_X_AXIS_LENGTH
         )
+        global_waypoints = SafetyChecker.convert_wps_to_global_coordinates(
+            pred_wps, ego_x, ego_y, ego_yaw
+        )
         current_locs = np.array([ego_x, ego_y])
         ego_yaw = ego_yaw.item()  # Convert to float
         ego_model = EgoModel(dt=1.0 / fps)
@@ -337,19 +399,12 @@ class SafetyChecker:
         dataset: List[Tuple[float, float, float]] = []
 
         for _ in range(num_frames):
-            pred_wps_copy = pred_wps.copy()
-            # Adjust the predicted waypoints to be relative to the ego vehicle
-            pred_wps_copy[:, 0] -= current_locs[0]
-            pred_wps_copy[:, 1] -= current_locs[1]
-            cos_yaw = np.cos(-ego_yaw)
-            sin_yaw = np.sin(-ego_yaw)
-            rotation_matrix = np.array([[cos_yaw, -sin_yaw], [sin_yaw, cos_yaw]])
-            pred_wps_copy = np.dot(
-                pred_wps_copy, rotation_matrix.T
-            )  # Rotate waypoints to match ego vehicle's orientation
+            local_waypoints = SafetyChecker.convert_wps_to_vehicle_coordinates(
+                global_waypoints, current_locs[0], current_locs[1], ego_yaw
+            )
             forward_wps = []
-            for wp in pred_wps_copy:
-                if wp[0] < 0.0 and wp[1] < 0.0:
+            for wp in local_waypoints:
+                if wp[0] < 0.0:
                     continue
                 forward_wps.append(wp)
 
@@ -426,29 +481,20 @@ class SafetyChecker:
                 ego_trajectory,
                 False,
             )  # Unsafe, there exists a collision
+        elif result == z3.unknown:
+            if debug:
+                print("Unknown: The solver could not determine the safety.")
+            return (
+                start_time,
+                ego_trajectory,
+                None,
+            )
         else:
             return (
                 start_time,
                 ego_trajectory,
                 True,
             )  # Safe, no collision exists for the given parameters
-
-
-# if __name__ == "__main__":
-#     dataset = pd.DataFrame()
-#     for i in np.arange(2.0, 15.0, 0.5):
-#         speed = i
-#         datapoints = []
-#         with open(f"../../../../datasets_v1/dataset_velocity_{i}.json", "r") as f:
-#             datapoints = json.load(f)
-#         for datapoint in datapoints:
-#             datapoint["speed"] = speed
-#         dataset = pd.concat(
-#             [dataset, pd.DataFrame(datapoints)],
-#         )
-#     dataset.to_csv("transformed_dataset.csv", index=False)
-#     print("Dataset transformed and saved to 'transformed_dataset.csv'.")
-#     exit(0)
 
 if __name__ == "__main__":
     dataset = None
@@ -459,6 +505,8 @@ if __name__ == "__main__":
         print(f"Dataset file {dataset_path} not found.")
         sys.exit(1)
     dataset_with_classification = []
+    unknowns = []
+    true_dps, false_dps = 0, 0
     for index, row in dataset.iterrows():
         print(index, "/", len(dataset))
         ego_bbox = json.loads(row["ego_bbox"])
@@ -472,17 +520,20 @@ if __name__ == "__main__":
         scenario_start_time = 43.4
         scenario_end_time = 53.4
         npc_starting = [
-            [292.85765075683594, 57.39452362060547],
-            [292.8581085205078, 37.02200698852539],
-            [31.21482849121094, 57.392520904541016],
-            [31.2152862548828, 37.02000427246094],
-            # [162.85592651367188 + 30, 37.39451599121094 + 10],
-            # [162.85638427734375 + 30, 37.02199935913086],
-            # [161.2130889892578 - 30, 37.392520904541016 + 10],
-            # [161.2135467529297 - 30, 37.02000427246094],
+            # [31.21482849121094, 57.392520904541016],
+            # [31.2152862548828, 37.02000427246094],
+            # [292.8581085205078, 37.02200698852539],
+            # [292.85765075683594, 57.39452362060547],
+            [162.85592651367188, 37.39451599121094],
+            [162.85638427734375, 37.02199935913086],
+            [161.2130889892578, 37.392520904541016],
+            [161.2135467529297, 37.02000427246094],
         ]
-        npc_forward = json.loads(row["npc_forward"])
+        npc_forward = [-0.9999862909317017, -0.0012179769109934568]
         solver = z3.Solver()
+        solver.set("timeout", 10000)  # Set a timeout for the solver
+        solver.set("unsat_core", True)  # Enable unsat core extraction
+        solver.set("smt.arith.nl", True)
         checker = SafetyChecker()
         if start_time < scenario_start_time:
             print(
@@ -492,10 +543,10 @@ if __name__ == "__main__":
         result = checker.get_datapoint(
             ego_bbox=ego_bbox,  # var
             start_time=start_time,  # var
-            pred_wps=pred_wps,
+            pred_wps=pred_wps,  # var
             ego_speed=ego_speed,  # var
             solver=solver,
-            debug=False,
+            debug=True,
             num_frames=num_frames,
             fps=fps,
             s_min=s_min,
@@ -505,27 +556,45 @@ if __name__ == "__main__":
             npc_starting=npc_starting,  # fixed
             npc_forward=npc_forward,  # fixed
         )
+        if result[2] is None:
+            print(f"Unknown result for datapoint at index {index}, skipping.")
+            unknowns.append(index)
+            continue
         xs = [f"x_{i}" for i in range(num_frames)]
         ys = [f"y_{i}" for i in range(num_frames)]
-        cyaws = [f"sin_yaw_{i}" for i in range(num_frames)]
-        syaws = [f"cos_yaw_{i}" for i in range(num_frames)]
-        boxs = [(xs[i], ys[i], cyaws[i], syaws[i]) for i in range(num_frames)]
+        syaws = [f"sin_yaw_{i}" for i in range(num_frames)]
+        cyaws = [f"cos_yaw_{i}" for i in range(num_frames)]
+        # boxs = [(xs[i], ys[i], cyaws[i], syaws[i]) for i in range(num_frames)]
         datapoint = {
             "timestamp": start_time,
         }
         for i, (x, y, cyaw, syaw) in enumerate(zip(xs, ys, cyaws, syaws)):
             datapoint[x] = result[1][i][0]
             datapoint[y] = result[1][i][1]
-            datapoint[cyaw] = np.cos(result[1][i][2])
             datapoint[syaw] = np.sin(result[1][i][2])
+            datapoint[cyaw] = np.cos(result[1][i][2])
         datapoint["label"] = "true" if result[2] else "false"
+        if result[2]:
+            true_dps += 1
+        else:
+            false_dps += 1
         dataset_with_classification.append(datapoint)
+        print(f"True datapoints: {true_dps}, False datapoints: {false_dps}, Unknowns: {len(unknowns)}")
 
     # Save the dataset with classification
     output_path = "classified_dataset.csv"
     output_df = pd.DataFrame(dataset_with_classification)
     output_df.to_csv(output_path, index=False)
     print(f"Dataset with classification saved to {output_path}")
+
+    unknowns_path = "unknowns.csv"
+    if unknowns:
+        unknown_dps = dataset.iloc[unknowns]
+        unknowns_df = pd.DataFrame(unknown_dps)
+        unknowns_df.to_csv(unknowns_path, index=False)
+        print(f"Unknown indices saved to {unknowns_path}")
+    else:
+        print("No unknown indices found.")
 
 
 # Goal:
