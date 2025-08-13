@@ -282,7 +282,7 @@ class SafetyChecker:
             pred = SafetyChecker.is_unsafe_at_t(
                 predicted_points[t],
                 prediction_at_time,
-                t,
+                t+1,  # t starts from 0, but the first frame is at timestep = 1
                 s_min,
                 s_max,
                 scenario_start_time,

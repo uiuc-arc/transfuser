@@ -10,7 +10,7 @@ from pysmt.fnode import FNode
 SMT2_CHECK_CODE = "\n(set-option :pp.decimal true)\n(set-option :pp.decimal_precision 10)\n(check-sat)\n(get-model)\n"
 
 class DTreeChecker:
-    def __init__(self, npc_speeds: List[float] = [3.0, 15.0]):
+    def __init__(self, npc_speeds: List[float] = [2.0, 15.0]):
         # Taken from TransFuser codebase and checked with CARLA
         self.ego_bbox = [
             (-2.4508416652679443, 1.0641621351242065),
@@ -44,10 +44,27 @@ class DTreeChecker:
 
     def _get_solver(self):
         solver = z3.Solver()
-        solver.set("timeout", 1000 * 60 * 15)  # 10 minutes timeout
+        solver.set("timeout", 1000 * 60 * 10)  # 10 minutes timeout
         solver.set("model", True)
         solver.set("unsat_core", True)
         return solver
+
+    @staticmethod
+    def is_in_box(point, vertices):
+        """
+        (0<=AM⋅AB<=AB⋅AB)∧(0<=AM⋅AD<=AD⋅AD)
+        """
+        A = vertices[0]
+        B = vertices[1]
+        D = vertices[3]
+        M = point
+        AM_AB = ((M[0] - A[0]) * (B[0] - A[0])) + ((M[1] - A[1]) * (B[1] - A[1]))
+        AM_AD = ((M[0] - A[0]) * (D[0] - A[0])) + ((M[1] - A[1]) * (D[1] - A[1]))
+        AB_AB = ((B[0] - A[0]) ** 2) + ((B[1] - A[1]) ** 2)
+        AD_AD = ((D[0] - A[0]) ** 2) + ((D[1] - A[1]) ** 2)
+
+        return z3.And(AM_AB >= 0, AM_AB <= AB_AB, AM_AD >= 0, AM_AD <= AD_AD)
+
 
     def is_in_npc(
         self, x: z3.ArithRef, y: z3.ArithRef, s: z3.ArithRef, t: z3.ArithRef

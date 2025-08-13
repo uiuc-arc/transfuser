@@ -33,7 +33,7 @@ npc_forward = np.array([-0.9999862909317017, -0.0012179769109934568])
 datapoints = pd.read_csv("classified_dataset.csv")
 true_dps = datapoints[datapoints.iloc[:, -1] == True]\
 # slice first 100 rows
-true_dps = true_dps.iloc[:10, :]
+true_dps = true_dps.iloc[:1000, :]
 false_dps = datapoints[datapoints.iloc[:, -1] == False]
 
 
