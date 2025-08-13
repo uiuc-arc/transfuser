@@ -221,7 +221,7 @@ class DTreeChecker:
         return z3.And(*predicates)
 
     def is_collision_present(
-        self, conjunct: z3.BoolRef, pred_len: int = 2
+        self, conjunct: z3.BoolRef, num_frames: int = 2
     ) -> z3.BoolRef:
         t = z3.Real("time")
         s = z3.Real("s")
@@ -229,23 +229,23 @@ class DTreeChecker:
         x = z3.Real("x")
         y = z3.Real("y")
 
-        x_pred = [z3.Real(f"x_{i}") for i in range(pred_len)]
-        y_pred = [z3.Real(f"y_{i}") for i in range(pred_len)]
-        sin_yaw_pred = [z3.Real(f"sin_yaw_{i}") for i in range(pred_len)]
-        cos_yaw_pred = [z3.Real(f"cos_yaw_{i}") for i in range(pred_len)]
+        x_pred = [z3.Real(f"x_{i}") for i in range(num_frames)]
+        y_pred = [z3.Real(f"y_{i}") for i in range(num_frames)]
+        sin_yaw_pred = [z3.Real(f"sin_yaw_{i}") for i in range(num_frames)]
+        cos_yaw_pred = [z3.Real(f"cos_yaw_{i}") for i in range(num_frames)]
 
         predicates = []
 
         ego_preds = []
 
-        for i in range(pred_len):
+        for i in range(num_frames):
             predicates.append(cos_yaw_pred[i] ** 2 + sin_yaw_pred[i] ** 2 == 1)
             ego_preds.append(
                 z3.And(
                     self.is_in_ego_actor(
                         x, y, [x_pred[i], y_pred[i], sin_yaw_pred[i], cos_yaw_pred[i]]
                     ),
-                    self.is_in_npc(x, y, s, t + (i / self.fps)),
+                    self.is_in_npc(x, y, s, t + ((i+1) / self.fps)),
                 )
             )
 
@@ -460,5 +460,5 @@ class DTreeChecker:
 if __name__ == "__main__":
     checker = DTreeChecker()
     # Example usage
-    pred = checker.is_collision_present(z3.BoolVal(True), pred_len=2)
+    pred = checker.is_collision_present(z3.BoolVal(True), num_frames=2)
     print("Predicates for collision check:", pred)

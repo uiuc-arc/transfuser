@@ -101,6 +101,6 @@ if __name__ == "__main__":
     else:
         dataset_path = sys.argv[1]
     pcs = PCSynthesis(dataset_path)
-    # pcs.run()
-    pcs.test()
+    pcs.run()
+    # pcs.test()
     print("PCSynthesis completed.")
