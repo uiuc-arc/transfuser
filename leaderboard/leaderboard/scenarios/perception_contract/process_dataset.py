@@ -323,7 +323,7 @@ class SafetyChecker:
             npc_starting,
             npc_forward,
         )
-        return z3.Or(*predicates), ego_trajectory
+        return predicates, ego_trajectory
 
     @staticmethod
     def convert_wps_to_global_coordinates(
@@ -455,7 +455,7 @@ class SafetyChecker:
         npc_starting,
         npc_forward,
     ):
-        safety, ego_trajectory = SafetyChecker.get_collision_predicate(
+        safety_preds, ego_trajectory = SafetyChecker.get_collision_predicate(
             ego_bbox,
             start_time,
             pred_wps,
@@ -469,32 +469,39 @@ class SafetyChecker:
             npc_starting,
             npc_forward,
         )
-        solver.add(safety)
-        result = solver.check()
-        if result == z3.sat:
-            if debug:
-                print("Unsafe: There exists a collision.")
-                model = solver.model()
-                print("Model:", model)
-            return (
-                start_time,
-                ego_trajectory,
-                False,
-            )  # Unsafe, there exists a collision
-        elif result == z3.unknown:
-            if debug:
-                print("Unknown: The solver could not determine the safety.")
-            return (
-                start_time,
-                ego_trajectory,
-                None,
-            )
-        else:
-            return (
-                start_time,
-                ego_trajectory,
-                True,
-            )  # Safe, no collision exists for the given parameters
+        for pred in safety_preds:
+            solver.push()
+            solver.add(pred)
+            result = solver.check()
+            if result == z3.sat:
+                if debug:
+                    print("Unsafe: There exists a collision.")
+                    model = solver.model()
+                    print("Model:", model)
+                solver.pop()
+                solver.reset()
+                return (
+                    start_time,
+                    ego_trajectory,
+                    False,
+                )  # Unsafe, there exists a collision
+            elif result == z3.unknown:
+                if debug:
+                    print("Unknown: The solver could not determine the safety.")
+                    print(solver.sexpr())
+                solver.pop()
+                solver.reset()
+                return (
+                    start_time,
+                    ego_trajectory,
+                    None,
+                )
+        return (
+            start_time,
+            ego_trajectory,
+            True,
+        )
+
 
 if __name__ == "__main__":
     dataset = None
@@ -597,62 +604,3 @@ if __name__ == "__main__":
         print("No unknown indices found.")
 
 
-# Goal:
-# In the end we should be able to do this checking:
-# Exists([Real("x"), Real("y"), Real("t"), Real("s")], And(is_in_ego_bbox(x, y, t), is_in_other_bbox(x, y, t, s),
-# other_speed_min <= s, s <= other_speed_max)
-# If this is sat, then there is a collision. Hence, unsafe.
-
-# pred_wps = np.array([[ 1.735676,   0.01005581],
-#  [ 3.6433578,  -0.00992398],
-#  [ 5.6090746,  -0.03921339],
-#  [ 7.597434,  -0.07129178]])
-# npc_starting = [(7.773118495941162, 3.3192648887634277), (8.145111083984375, 3.299520492553711), (7.686257362365723, 1.6841745376586914), (8.058249473571777, 1.6644301414489746)]
-# npc_forward = ([-0.05287253, -0.99528052])
-# ego_bbox = [(-2.446798801422119, -1.0641616582870483), (-2.446798801422119, 1.0641626119613647), (2.4548845291137695, 1.0641626119613647), (2.4548845291137695, -1.0641616582870483)]
-
-# solver = z3.Solver()
-# checker = SafetyChecker(
-# )
-# x = z3.Real("x")
-# y = z3.Real("y")
-# s = z3.Real("s")
-# t = z3.Real("t")
-
-# result = checker.get_datapoint(
-#     ego_bbox=ego_bbox, # var
-#     start_time=1.0, # var
-#     pred_wps=pred_wps, # var, pretransform
-#     ego_speed=4.0, # var
-#     solver=solver,
-#     debug=True,
-#     num_frames=2,
-#     fps=20,
-#     s_min=3.0,
-#     s_max=15.0,
-#     scenario_start_time=1.0,
-#     npc_starting=npc_starting, # fixed
-#     npc_forward=npc_forward # fixed
-# )
-# print("Result:", result)
-
-# safety_preds = checker.is_in_other_bbox_volume(x, y, s, t)
-# print("Safety predicates:", safety_preds)
-# solver.add(safety_preds)
-# result = solver.check()
-# if result == sat:
-#     print("Unsafe: There exists a collision.")
-#     model = solver.model()
-#     print("Model:", model)
-# else:
-#     print("Safe: No collision exists for the given parameters.")
-# result = checker.get_datapoint()
-# print(result)
-# solver.add(
-#     checker.get_collision_predicate()
-# )
-# result = solver.check()
-# if result == sat:
-#     print("Unsafe: There exists a collision.")
-# else:
-#     print("Safe: No collision exists for the given parameters.")

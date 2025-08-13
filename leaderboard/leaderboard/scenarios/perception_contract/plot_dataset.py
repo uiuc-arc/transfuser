@@ -40,7 +40,7 @@ false_dps = datapoints[datapoints.iloc[:, -1] == False]
 def plot_points(points):
     fig, ax = plt.subplots()
     for point in points:
-        print(f"Point: {point}")
+        # print(f"Point: {point}")
         # plot first point
         # rotate then translate the bounding box
         newbox = np.array(bbox)
@@ -73,7 +73,7 @@ def plot_points(points):
         # ax.plot(rotated_bbox2[:, 0], rotated_bbox2[:, 1], color="red")
         # ax.fill(rotated_bbox2[:, 0], rotated_bbox2[:, 1], color="red", alpha=0.3)
 
-    for i in range(4):
+    for i in range(20):
         speed = 2.0
         time = i / 2.0
         box = []
