@@ -497,7 +497,8 @@ class GurobiDTreeChecker(DTreeChecker):
                         ego_state['sin_yaw'].X,
                         ego_state['cos_yaw'].X
                     ])
-                cexs.append(cex)
+                if cex not in cexs:
+                    cexs.append(cex)
 
             self.cexes.extend(cexs)  # Store only the first part of the counterexample
             return cexs
