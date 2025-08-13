@@ -71,7 +71,7 @@ class PCSynthesis:
 
     def test(self):
         self.dtree_learner.generate_features()
-        tree = self.dtree_learner.get_pre_from_json("out_v1/dataset.json")
+        tree = self.dtree_learner.get_pre_from_json("out/dataset.json")
         cexs = self.dtree_checker.check(tree, pred_len=2)
         if len(cexs) > 0:
             print(f"{len(cexs)} counterexamples found")
