@@ -7,6 +7,7 @@ import sys
 
 from dtree_checker import DTreeChecker
 from dtree_learner import DTreeLearner
+from gurobi_dtree_checker import GurobiDTreeChecker
 
 
 class PCSynthesis:
@@ -29,8 +30,8 @@ class PCSynthesis:
 
         self.npc_min_speed = 2.0
         self.npc_max_speed = 15.0
-        self.dtree_checker = DTreeChecker(
-            npc_speeds=[self.npc_min_speed, self.npc_max_speed]
+        self.dtree_checker = GurobiDTreeChecker(
+            npc_speeds=[self.npc_min_speed, self.npc_max_speed], pred_len=2
         )
 
     def mk_temp_dataset(self, dataset_path):
@@ -70,10 +71,10 @@ class PCSynthesis:
 
     def test(self):
         self.dtree_learner.generate_features()
-        tree = self.dtree_learner.get_pre_from_json("out/dataset.json")
+        tree = self.dtree_learner.get_pre_from_json("out_v1/dataset.json")
         cexs = self.dtree_checker.check(tree, pred_len=2)
         if len(cexs) > 0:
-            print(f"Counterexamples found: {cexs}")
+            print(f"{len(cexs)} counterexamples found")
         else:
             print("No counterexamples found, the region is safe.")
 
@@ -101,6 +102,6 @@ if __name__ == "__main__":
     else:
         dataset_path = sys.argv[1]
     pcs = PCSynthesis(dataset_path)
-    pcs.run()
-    # pcs.test()
+    # pcs.run()
+    pcs.test()
     print("PCSynthesis completed.")

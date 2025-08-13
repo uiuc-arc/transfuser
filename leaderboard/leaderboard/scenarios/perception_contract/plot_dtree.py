@@ -17,10 +17,14 @@ bbox = [
 
 npc_starting = np.array(
     [
-        [292.85765075683594, 57.392520904541016],
-        [292.85765075683594, 37.02000427246094],
-        [31.21482849121094, 37.02000427246094],
-        [31.21482849121094, 57.392520904541016],
+        # [292.85765075683594, 57.392520904541016],
+        # [292.85765075683594, 37.02000427246094],
+        # [31.21482849121094, 37.02000427246094],
+        # [31.21482849121094, 57.392520904541016],
+        [161.2135467529297, 37.02000427246094],
+        [162.85638427734375, 37.02199935913086],
+        [162.85592651367188, 37.39451599121094],
+        [161.2130889892578, 37.392520904541016],
     ]
 )
 npc_forward = np.array([-0.9999862909317017, -0.0012179769109934568])
@@ -42,10 +46,10 @@ def get_satisfying_points(inequalities, num_points=1000, sympy_vars=None):
 
     for pair in zip(sin1, cos1, sin2, cos2):
         while len(satisfying_points) < num_points:
-            x0 = np.random.uniform(-300, 300, size=1000)
-            y0 = np.random.uniform(-300, 300, size=1000)
-            x1 = np.random.uniform(-300, 300, size=1000)
-            y1 = np.random.uniform(-300, 300, size=1000)
+            x0 = np.random.uniform(100, 250, size=1000)
+            y0 = np.random.uniform(0, 100, size=1000)
+            x1 = np.random.uniform(100, 250, size=1000)
+            y1 = np.random.uniform(0, 100, size=1000)
             for i in range(len(x0)):
                 x0_i = x0[i]
                 y0_i = y0[i]
@@ -66,11 +70,15 @@ def get_satisfying_points(inequalities, num_points=1000, sympy_vars=None):
                     })
                     vals.append(val)
                 if len(vals) == 2:
-                    if vals[0] >= 0 and vals[1] > 0:
+                    if vals[0] > 0 and vals[1] > 0:
                         satisfying_points.append(
                             (x0_i, y0_i, pair[0], pair[1], x1_i, y1_i, pair[2], pair[3])
                         )
-                
+                elif len(vals) == 3:
+                    if vals[0] > 0 and vals[1] <= 0 and vals[2] <= 0:
+                        satisfying_points.append(
+                            (x0_i, y0_i, pair[0], pair[1], x1_i, y1_i, pair[2], pair[3])
+                        )
 
                 # val = ((1*pair[1]) + (-1*x1_i) + (-1*y1_i) + (1*pair[3])) - 153.1451
 
@@ -132,14 +140,15 @@ def plot_points(points):
         ax.plot(rotated_box2[:, 0], rotated_box2[:, 1], color="red")
         ax.fill(rotated_box2[:, 0], rotated_box2[:, 1], color="red", alpha=0.3)
 
-    for i in range(10):
+    for i in range(2):
+        speed = 2.0
         time = i / 2.0
         box = []
         for j in range(npc_starting.shape[0]):
             box.append(
                 (
-                    npc_starting[j][0] + npc_forward[0] * time,
-                    npc_starting[j][1] + npc_forward[1] * time,
+                    npc_starting[j][0] + npc_forward[0] * time * speed,
+                    npc_starting[j][1] + npc_forward[1] * time * speed,
                 )
             )
 
@@ -149,8 +158,8 @@ def plot_points(points):
         ax.plot(box[:, 0], box[:, 1], "blue")
         ax.fill(box[:, 0], box[:, 1], alpha=0.3)
 
-    ax.set_xlim(-450, 450)
-    ax.set_ylim(-450, 450)
+    ax.set_xlim(90, 260)
+    ax.set_ylim(-10, 110) 
     ax.set_aspect("equal", adjustable="box")
 
     plt.grid()
@@ -241,29 +250,83 @@ if __name__ == "__main__":
         "time x0 y0 sin_yaw0 cos_yaw0 x1 y1 sin_yaw1 cos_yaw1", real=True
     )
 
-    # And(6137293762260537/70368744177664 >=
+    # And(-6912353406506815/35184372088832 <
     # 1*time +
-    # -1*sin_yaw_0 +
+    # -1*x_0 +
+    # 1*y_0 +
+    # 1*sin_yaw_0 +
     # 1*cos_yaw_0 +
-    # 1*y_1 +
-    # 1*sin_yaw_1,
-    # 5524593106705617/70368744177664 <
-    # 1*x_0 + -1*sin_yaw_0 + 1*cos_yaw_0)
+    # -1*y_1 +
+    # -1*sin_yaw_1,
+    # -7963433746102537/70368744177664 >=
+    # 1*time +
+    # 1*y_0 +
+    # 1*sin_yaw_0 +
+    # -1*x_1 +
+    # -1*y_1 +
+    # -1*sin_yaw_1 +
+    # -1*cos_yaw_1,
+    # -171803639642325/549755813888 >=
+    # 1*time +
+    # -1*x_0 +
+    # -1*sin_yaw_0 +
+    # -1*cos_yaw_0 +
+    # -1*x_1 +
+    # -1*y_1 +
+    # -1*sin_yaw_1 +
+    # -1*cos_yaw_1)
 
-    inequality = sympy.Rational(6137293762260537/70368744177664) - (
+    # And(-6912353406506815/35184372088832 <
+    # 1*time +
+    # -1*x_0 +
+    # 1*y_0 +
+    # 1*sin_yaw_0 +
+    # 1*cos_yaw_0 +
+    # -1*y_1 +
+    # -1*sin_yaw_1,
+    # -7963433746102537/70368744177664 <
+    # 1*time +
+    # 1*y_0 +
+    # 1*sin_yaw_0 +
+    # -1*x_1 +
+    # -1*y_1 +
+    # -1*sin_yaw_1 +
+    # -1*cos_yaw_1)
+
+    inequality = sympy.Rational(6912353406506815/35184372088832) + (
         1 * time
-        + -1 * sin_yaw0
+        + (-1 * x0)
+        + 1 * y0
+        + 1 * sin_yaw0
         + 1 * cos_yaw0
-        + 1 * y1
-        + 1 * sin_yaw1
+        + (-1 * y1)
+        + (-1 * sin_yaw1)
     )
-    inequality2 = (
-        1 * x0 + -1 * sin_yaw0 + 1 * cos_yaw0
-    ) - sympy.Rational(5524593106705617/70368744177664)
-    for i in np.arange(42, 52, 2.0):
+    inequality1 = sympy.Rational(7963433746102537/70368744177664) + (
+        1 * time
+        + 1 * y0
+        + 1 * sin_yaw0
+        + (-1 * x1)
+        + (-1 * y1)
+        + (-1 * sin_yaw1)
+        + (-1 * cos_yaw1)
+    )
+    # inequality2 = sympy.Rational(171803639642325/549755813888) + (
+    #     1 * time
+    #     + (-1 * x0)
+    #     + (-1 * sin_yaw0)
+    #     + (-1 * cos_yaw0)
+    #     + (-1 * x1)
+    #     + (-1 * y1)
+    #     + (-1 * sin_yaw1)
+    #     + (-1 * cos_yaw1)
+    # )
+    for i in np.arange(44, 52, 1.0):
         inequality = inequality.subs(time, i)
-        inequality2 = inequality2.subs(time, i)
-        points = get_satisfying_points([inequality, inequality2], num_points=1000, sympy_vars=[
+        inequality1 = inequality1.subs(time, i)
+        # inequality2 = inequality2.subs(time, i)
+
+        points = get_satisfying_points([inequality, inequality1], num_points=1000, sympy_vars=[
             x0, y0, sin_yaw0, cos_yaw0, x1, y1, sin_yaw1, cos_yaw1
         ])
         print("Number of satisfying points:", len(points))

@@ -36,6 +36,12 @@ class DTreeChecker:
         self.cexes = []
 
     @staticmethod
+    def _to_real(v: float) -> z3.RatNumRef:
+        return z3.simplify(
+            z3.fpToReal(z3.FPVal(v, z3.Float64()))
+        )
+
+    @staticmethod
     def _remove_qn_marks(s: str) -> str:
         """
         Remove question marks from the string
@@ -64,7 +70,6 @@ class DTreeChecker:
         AD_AD = ((D[0] - A[0]) ** 2) + ((D[1] - A[1]) ** 2)
 
         return z3.And(AM_AB >= 0, AM_AB <= AB_AB, AM_AD >= 0, AM_AD <= AD_AD)
-
 
     def is_in_npc(
         self, x: z3.ArithRef, y: z3.ArithRef, s: z3.ArithRef, t: z3.ArithRef
@@ -359,6 +364,50 @@ class DTreeChecker:
                         return datapoint
                 
             return []
+
+    def is_cex_pred(self, cex, pred_len: int = 2) -> z3.BoolRef:
+        """
+        Check if the given counterexample is valid.
+        Args:
+            cex: The counterexample to check.
+            pred_len (int): Number of predictions to consider.
+        Returns:
+            z3.BoolRef: A Z3 expression that is True if the counterexample is valid.
+        """
+        if len(cex) != 1 + pred_len * 4:
+            raise ValueError(
+                f"Counterexample must have {1 + pred_len * 4} elements, got {len(cex)}"
+            )
+
+        cex_map = []
+        cex = list(map(DTreeChecker._to_real, cex))
+        cex_map.append((z3.Real("time"), cex[0]))
+        for i in range(pred_len):
+            cex_map.append((z3.Real(f"x_{i}"), cex[1 + i * 4]))
+            cex_map.append((z3.Real(f"y_{i}"), cex[2 + i * 4]))
+            cex_map.append((z3.Real(f"sin_yaw_{i}"), cex[3 + i * 4]))
+            cex_map.append((z3.Real(f"cos_yaw_{i}"), cex[4 + i * 4]))
+        return cex_map
+
+    def is_valid_cex(self, conjunct, cex, pred_len:int = 2) -> bool:
+        """
+        Check if the given counterexample is valid.
+        Args:
+            cex (List[float]): The counterexample to check.
+        Returns:
+            bool: True if the counterexample is valid, False otherwise.
+        """
+        cex_map = self.is_cex_pred(cex, pred_len)
+
+        val = z3.simplify(
+            z3.substitute(conjunct, *cex_map)
+        )
+        if not z3.is_bool(val):
+            raise ValueError("Conjunct must be a boolean expression.")
+        if z3.is_true(val):
+            return True
+        else:
+            return False
 
     def candidate_to_conjuncts(self, candidate: z3.BoolRef):
         init_path = [candidate]
