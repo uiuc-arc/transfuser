@@ -4,6 +4,7 @@ from copy import deepcopy as copy
 import subprocess
 import json
 import tempfile
+import numpy as np
 from pysmt.smtlib.parser import SmtLibParser
 from pysmt.fnode import FNode
 
@@ -505,6 +506,115 @@ class DTreeChecker:
                 res[key] = value
         return res
 
+
+class SeparatorDTreeChecker(DTreeChecker):
+
+    def __init__(self, time):
+        npc_speeds = [2.0, 15.0]
+        super().__init__(npc_speeds)
+        self.current_time = time
+
+    def check(self, candidate):
+        cexs = []
+        solver = self._get_solver()
+        conjuncts = list(self.candidate_to_conjuncts(candidate))
+        print(f"Checking {len(conjuncts)} conjuncts for safety.")
+        for conjunct in conjuncts:
+            print(f"Checking conjunct: {conjunct}")
+            cex = self.get_cex(solver, conjunct)
+            if len(cex) > 0:
+                cexs.append(cex)
+                self.cexes.append(cex)
+        if len(cexs) > 0:
+            print(f"Counterexamples found: {cexs}")
+        else:
+            print("No counterexamples found. The candidate is safe.")
+        return cexs
+
+    def get_cex(self, solver, conjunct):
+        solver.push()
+        # solver.add(self.is_region_safe(conjunct, pred_len))
+        solver.add(self._contains_unsafe_points(conjunct))
+
+        cex_new = self._is_not_prev_seen_cex()
+        if cex_new is not None:
+            solver.add(cex_new)
+
+        current_formula = solver.sexpr()
+        current_formula += SMT2_CHECK_CODE
+        model = None
+        with tempfile.NamedTemporaryFile(mode='w+t', suffix=".smt2") as f:
+            f.write(current_formula)
+            f.flush()
+            f.seek(0)
+            cmd = f"z3 -smt2 unsat_core=true -T:600 {f.name}"
+            print(f"Running command: {cmd}")
+            proc = subprocess.Popen(
+                cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = proc.communicate()
+            if proc.returncode != 0:
+                print("Error running Z3 command:", stderr.decode())
+                return []
+
+            parser = SmtLibParser()
+            output_str = stdout.decode().strip().splitlines()
+            status = output_str[0].strip()
+            if status == "sat":
+                model_string = output_str[1:]
+                model_string = "\n".join(model_string)
+                model_string = DTreeChecker._remove_qn_marks(model_string)
+                model_string = model_string.strip(" ").strip("\n")
+                print("Model string:", model_string)
+                with tempfile.NamedTemporaryFile(mode='w+t', suffix=".smt2") as f1:
+                    if model_string:
+                        f1.write(model_string)
+                        f1.flush()
+                        f1.seek(0)
+
+                        model = parser.parse_model(f1)
+                        print("Model:", model[0])
+                        new_model = {}
+                        for k, v in model[0].items():
+                            new_model[str(k)] = self._to_float(v)
+
+                        datapoint = [(new_model["x"], new_model["y"])]
+                        effective_time = np.maximum(
+                            self.current_time - self.scenario_start_time, 0
+                        )
+                        for vertex in self.npc_starting:
+                            npc_x = vertex[0] + self.npc_forward[0] * new_model["s"] * effective_time
+                            npc_y = vertex[1] + self.npc_forward[1] * new_model["s"] * effective_time
+                            datapoint.append((npc_x, npc_y))
+
+
+                        return datapoint
+            return []
+
+    def _contains_unsafe_points(self, conjunct):
+        
+        x = z3.Real("x")
+        y = z3.Real("y")
+        s = z3.Real("s")
+        t = self.current_time
+
+        preds = [conjunct]
+        preds.append(t >= self.scenario_start_time)
+        preds.append(t <= self.scenario_end_time)
+        preds.append(s >= self.npc_speeds[0])
+        preds.append(s <= self.npc_speeds[1])
+
+        npc_vertices = []
+        effective_time = np.maximum(t - self.scenario_start_time, 0)
+        for vertex in self.npc_starting:
+            npc_x = vertex[0] + self.npc_forward[0] * s * effective_time
+            npc_y = vertex[1] + self.npc_forward[1] * s * effective_time
+            npc_vertices.append((npc_x, npc_y))
+
+        is_in_npc = DTreeChecker.is_in_box((x, y), npc_vertices)
+        preds.append(is_in_npc)
+
+        return z3.And(*preds)
 
 if __name__ == "__main__":
     checker = DTreeChecker()

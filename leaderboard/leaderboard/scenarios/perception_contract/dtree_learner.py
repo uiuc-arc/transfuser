@@ -27,7 +27,7 @@ class DTreeLearner:
         if len(self.base_features) < k:
             return res
 
-        coeff_combinations = list(itertools.product([1, -1], repeat=k))
+        coeff_combinations = list(itertools.product([-5, -4, -3, -2, -1, 1, 2, 3, 4, 5], repeat=k))
         var_id_iter = range(len(self.base_features))
         for selected_var_ids in itertools.combinations(var_id_iter, k):
             for coeff in coeff_combinations:

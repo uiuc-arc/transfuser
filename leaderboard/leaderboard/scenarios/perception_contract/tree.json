@@ -18,7 +18,7 @@
         "cat_": false
     },
     "tree": {
-        "n_samples": 460,
+        "n_samples": 410,
         "impurity": 0.0,
         "is_leaf": true,
         "value": 0.0

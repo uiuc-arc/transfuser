@@ -8,6 +8,7 @@ import json
 import pandas as pd
 import tqdm
 import copy
+from sys import exit
 
 class SafetyChecker:
 
@@ -103,6 +104,7 @@ class SafetyChecker:
         # print(f"Converting vertices: {vertices}")
         point_a, point_b = SafetyChecker.find_vertices_along_distance(vertices, x_dim)
         yaw = np.arctan2((point_b[1] - point_a[1]) , (point_b[0] - point_a[0]))
+        yaw = yaw % np.pi
         x = np.mean(vertices[:, 0]).item()
         y = np.mean(vertices[:, 1]).item()
         # print(f"Converted vertices to x: {x}, y: {y}, yaw: {np.rad2deg(yaw)} degrees")
@@ -163,6 +165,7 @@ class SafetyChecker:
             transformed_vertex = (rotated_vertex[0] + ego_x, rotated_vertex[1] + ego_y)
             transformed_ego_bbox.append(transformed_vertex)
 
+        print(f"Transformed ego bbox: {list(map(lambda v: (v[0].item(), v[1].item()), transformed_ego_bbox))}") 
         res = SafetyChecker.is_in_box((x, y), transformed_ego_bbox)
         return res
 
@@ -192,28 +195,29 @@ class SafetyChecker:
         else:
             predicates.append(s == 0)
 
-        npc_x_0 = z3.Real("npc_x_0")
-        npc_y_0 = z3.Real("npc_y_0")
-        npc_x_1 = z3.Real("npc_x_1")
-        npc_y_1 = z3.Real("npc_y_1")
-        npc_x_2 = z3.Real("npc_x_2")
-        npc_y_2 = z3.Real("npc_y_2")
-        npc_x_3 = z3.Real("npc_x_3")
-        npc_y_3 = z3.Real("npc_y_3")
-
         t = np.maximum(0, effective_time - scenario_start_time)
-        predicates.append(
-            z3.And(
-                npc_x_0 == (npc_starting[0][0] + npc_forward[0] * s * t),
-                npc_y_0 == (npc_starting[0][1] + npc_forward[1] * s * t),
-                npc_x_1 == (npc_starting[1][0] + npc_forward[0] * s * t),
-                npc_y_1 == (npc_starting[1][1] + npc_forward[1] * s * t),
-                npc_x_2 == (npc_starting[2][0] + npc_forward[0] * s * t),
-                npc_y_2 == (npc_starting[2][1] + npc_forward[1] * s * t),
-                npc_x_3 == (npc_starting[3][0] + npc_forward[0] * s * t),
-                npc_y_3 == (npc_starting[3][1] + npc_forward[1] * s * t),
-            ),
-        )
+        
+        npc_x_0 = (npc_starting[0][0] + npc_forward[0] * s * t)
+        npc_y_0 = (npc_starting[0][1] + npc_forward[1] * s * t)
+        npc_x_1 = (npc_starting[1][0] + npc_forward[0] * s * t)
+        npc_y_1 = (npc_starting[1][1] + npc_forward[1] * s * t)
+        npc_x_2 = (npc_starting[2][0] + npc_forward[0] * s * t)
+        npc_y_2 = (npc_starting[2][1] + npc_forward[1] * s * t)
+        npc_x_3 = (npc_starting[3][0] + npc_forward[0] * s * t)
+        npc_y_3 = (npc_starting[3][1] + npc_forward[1] * s * t)        
+
+        # predicates.append(
+        #     z3.And(
+        #         npc_x_0 == (npc_starting[0][0] + npc_forward[0] * s * t),
+        #         npc_y_0 == (npc_starting[0][1] + npc_forward[1] * s * t),
+        #         npc_x_1 == (npc_starting[1][0] + npc_forward[0] * s * t),
+        #         npc_y_1 == (npc_starting[1][1] + npc_forward[1] * s * t),
+        #         npc_x_2 == (npc_starting[2][0] + npc_forward[0] * s * t),
+        #         npc_y_2 == (npc_starting[2][1] + npc_forward[1] * s * t),
+        #         npc_x_3 == (npc_starting[3][0] + npc_forward[0] * s * t),
+        #         npc_y_3 == (npc_starting[3][1] + npc_forward[1] * s * t),
+        #     ),
+        # )
 
         npc_vertices = [(npc_x_0, npc_y_0), (npc_x_1, npc_y_1), (npc_x_2, npc_y_2), (npc_x_3, npc_y_3)]
 
@@ -237,9 +241,7 @@ class SafetyChecker:
         x = z3.Real("x")
         y = z3.Real("y")
         s = z3.Real("s")
-        predicate = z3.Exists(
-            [x, y, s],
-            z3.And(
+        predicate = z3.And(
                 SafetyChecker.is_in_ego_bbox(x, y, *predicted_point),
                 SafetyChecker.is_in_other_bbox(
                     x,
@@ -255,8 +257,7 @@ class SafetyChecker:
                     npc_starting,
                     npc_forward,
                 ),
-            ),
-        )
+            )
         return predicate
 
     @staticmethod
@@ -276,13 +277,13 @@ class SafetyChecker:
     ):
         predicates = []
         predicted_points = SafetyChecker.get_trajectory(
-            ego_bbox, pred_wps, ego_speed, num_frames, fps
+            ego_bbox, pred_wps, ego_speed, fps
         )
-        for t in range(num_frames):
+        for t, dp in enumerate(predicted_points):
             pred = SafetyChecker.is_unsafe_at_t(
-                predicted_points[t],
+                dp[0],
                 prediction_at_time,
-                t+1,  # t starts from 0, but the first frame is at timestep = 1
+                t,  # t starts from 0, first frame is when everything is still
                 s_min,
                 s_max,
                 scenario_start_time,
@@ -366,13 +367,32 @@ class SafetyChecker:
         rotation_matrix = np.array([[cos_yaw, -sin_yaw], [sin_yaw, cos_yaw]])
         rotated_wps = np.dot(pred_wps_copy, rotation_matrix.T)
         return rotated_wps
+    
+    @staticmethod
+    def convert_points_to_vehicle_coordinates(
+        vertices: List[Tuple[float, float]],
+        ego_x: float,
+        ego_y: float,
+        ego_yaw: float,
+    ) -> List[Tuple[float, float]]:
+        points = []
+        translated_points = []
+        for vertex in vertices:
+            translated_vertex = (vertex[0] - ego_x, vertex[1] - ego_y)
+            translated_points.append(translated_vertex)
+            cos_yaw = np.cos(-ego_yaw)
+            sin_yaw = np.sin(-ego_yaw)
+            rotation_matrix = np.array([[cos_yaw, -sin_yaw], [sin_yaw, cos_yaw]])
+            rotated_vertex = np.dot(rotation_matrix, np.array(translated_vertex))
+            points.append((rotated_vertex[0], rotated_vertex[1]))
+        return points
 
     @staticmethod
     def get_trajectory(
         ego_bbox: List[Tuple[float, float]],
         pred_wps: np.ndarray,
         ego_speed: float,
-        num_frames: int,
+        # num_frames: int,
         fps: int,
     ) -> List[List[float]]:
         """
@@ -389,16 +409,21 @@ class SafetyChecker:
         ego_x, ego_y, ego_yaw = SafetyChecker.to_xyyaw(
             ego_bbox, SafetyChecker.EGO_VEHICLE_X_AXIS_LENGTH
         )
+        print(f"Local waypoints: {pred_wps}")
         global_waypoints = SafetyChecker.convert_wps_to_global_coordinates(
             pred_wps, ego_x, ego_y, ego_yaw
         )
+        print(f"Global waypoints: {global_waypoints}")
         current_locs = np.array([ego_x, ego_y])
         ego_yaw = ego_yaw.item()  # Convert to float
         ego_model = EgoModel(dt=1.0 / fps)
 
-        dataset: List[Tuple[float, float, float]] = []
+        dataset: List[Tuple[float, float, float]] = [SafetyChecker.filter_points(ego_bbox)]
+        g_dataset: List[List[Tuple[float, float]]] = [[current_locs[0], current_locs[1], ego_yaw]]
 
-        for _ in range(num_frames):
+        while True:
+            if ego_speed == 0.0:
+                break
             local_waypoints = SafetyChecker.convert_wps_to_vehicle_coordinates(
                 global_waypoints, current_locs[0], current_locs[1], ego_yaw
             )
@@ -423,20 +448,30 @@ class SafetyChecker:
             current_locs = new_locs
             ego_yaw = new_yaw
             ego_speed = new_speed
-            datapoint = [current_locs[0], current_locs[1], ego_yaw.item()]
-            dataset.append(datapoint)
+            g_dataset.append([current_locs[0], current_locs[1], ego_yaw.item()])
+            new_vertices = []
+            for vertex in SafetyChecker.ego_bbox:
+                rotated_vertex = np.dot(
+                    np.array([[np.cos(ego_yaw), -np.sin(ego_yaw)], [np.sin(ego_yaw), np.cos(ego_yaw)]]),
+                    np.array(vertex)
+                )
+                translated_vertex = (rotated_vertex[0] + current_locs[0], rotated_vertex[1] + current_locs[1])
+                new_vertices.append(translated_vertex)
+            dataset.append(new_vertices)
 
-        if len(dataset) == 0:
-            if type(ego_yaw) is not float:
-                ego_yaw = ego_yaw.item()
-            dataset = [[ego_x, ego_y, ego_yaw] for _ in range(num_frames)]
-        elif len(dataset) < num_frames:
-            last_point = dataset[-1]
-            pad_size = num_frames - len(dataset)
-            # Pad the dataset with the last point to ensure it has the correct length
-            dataset.extend([last_point] * pad_size)
+        # convert every point relative to initial ego vehicle position
+        final_dataset = []
+        initial_point = dataset[0]
+        initial_x, initial_y, initial_yaw = SafetyChecker.to_xyyaw(
+            initial_point, SafetyChecker.EGO_VEHICLE_X_AXIS_LENGTH
+        )
+        for idx, point in enumerate(dataset):
+            new_point = SafetyChecker.convert_points_to_vehicle_coordinates(
+                point, initial_x, initial_y, initial_yaw
+            )
+            final_dataset.append((g_dataset[idx], new_point))
 
-        return dataset
+        return final_dataset
 
     @staticmethod
     def get_datapoint(
@@ -469,26 +504,76 @@ class SafetyChecker:
             npc_starting,
             npc_forward,
         )
-        for pred in safety_preds:
+        for i, pred in enumerate(safety_preds):
             solver.push()
             solver.add(pred)
             result = solver.check()
             if result == z3.sat:
                 if debug:
-                    print("Unsafe: There exists a collision.")
+                    print("Unsafe: There exists a collision at timestep", i)
                     model = solver.model()
-                    print("Model:", model)
+                    x = str(model.eval(z3.Real("x")).as_decimal(10))
+                    y = str(model.eval(z3.Real("y")).as_decimal(10))
+                    s = str(model.eval(z3.Real("s")).as_decimal(10))
+                    if x.endswith("?"):
+                        x = float(x[:-1])
+                    else:
+                        x = float(x)
+                    if y.endswith("?"):
+                        y = float(y[:-1])
+                    else:
+                        y = float(y)
+                    new_point = SafetyChecker.convert_points_to_vehicle_coordinates(
+                        [(x, y)],
+                        ego_trajectory[0][0][0],
+                        ego_trajectory[0][0][1],
+                        ego_trajectory[0][0][2],
+                    )
+                    if s.endswith("?"):
+                        s = float(s[:-1])
+                    else:
+                        s = float(s)
+
+                    npc_vertices = []
+                    effective_time = start_time + (i * (1.0 / fps))
+                    effective_time = np.maximum(0, effective_time - scenario_start_time)
+                    for vertex in npc_starting:
+                        new_vertex = vertex[0] + s * effective_time * npc_forward[0], \
+                        vertex[1] + s * effective_time * npc_forward[1]
+                        npc_vertices.append(new_vertex)
+
+                    print(f"NPC vertices: {list(map(lambda v: (v[0].item(), v[1].item()), npc_vertices))}")
+
+                    converted_vertices = SafetyChecker.convert_points_to_vehicle_coordinates(
+                        npc_vertices,
+                        ego_trajectory[0][0][0],
+                        ego_trajectory[0][0][1],
+                        ego_trajectory[0][0][2],
+                    )
+                    print(f"Converted vertices: {converted_vertices}")
+                    ego_vertices = []
+                    for vertex in ego_trajectory[i][1]:
+                        r_vertex = np.dot(
+                            np.array([[np.cos(ego_trajectory[i][0][2]), -np.sin(ego_trajectory[i][0][2])],
+                                      [np.sin(ego_trajectory[i][0][2]), np.cos(ego_trajectory[i][0][2])]]),
+                            np.array(vertex)
+                        )
+                        rotated_vertex = (r_vertex[0] + ego_trajectory[i][0][0], r_vertex[1] + ego_trajectory[i][0][1])
+                        ego_vertices.append((rotated_vertex[0], rotated_vertex[1]))
+                    print(f"Ego vertices: {ego_trajectory[i][1]}")
+                    
+
                 solver.pop()
                 solver.reset()
                 return (
                     start_time,
-                    ego_trajectory,
+                    converted_vertices + new_point,
                     False,
                 )  # Unsafe, there exists a collision
             elif result == z3.unknown:
                 if debug:
                     print("Unknown: The solver could not determine the safety.")
-                    print(solver.sexpr())
+                    # print(solver.sexpr())
                 solver.pop()
                 solver.reset()
                 return (
@@ -505,7 +590,7 @@ class SafetyChecker:
 
 if __name__ == "__main__":
     dataset = None
-    dataset_path = "transformed_dataset.csv" if len(sys.argv) < 2 else sys.argv[1]
+    dataset_path = "datasets_pc/dataset_47.5.csv" if len(sys.argv) < 2 else sys.argv[1]
     try:
         dataset = pd.read_csv(dataset_path)
     except FileNotFoundError:
@@ -567,25 +652,29 @@ if __name__ == "__main__":
             print(f"Unknown result for datapoint at index {index}, skipping.")
             unknowns.append(index)
             continue
-        xs = [f"x_{i}" for i in range(num_frames)]
-        ys = [f"y_{i}" for i in range(num_frames)]
-        syaws = [f"sin_yaw_{i}" for i in range(num_frames)]
-        cyaws = [f"cos_yaw_{i}" for i in range(num_frames)]
-        # boxs = [(xs[i], ys[i], cyaws[i], syaws[i]) for i in range(num_frames)]
-        datapoint = {
-            "timestamp": start_time,
-        }
-        for i, (x, y, cyaw, syaw) in enumerate(zip(xs, ys, cyaws, syaws)):
-            datapoint[x] = result[1][i][0]
-            datapoint[y] = result[1][i][1]
-            datapoint[syaw] = np.sin(result[1][i][2])
-            datapoint[cyaw] = np.cos(result[1][i][2])
-        datapoint["label"] = "true" if result[2] else "false"
+
         if result[2]:
+            traj = result[1]
+            for bbox in traj:
+                for vertex in bbox[1]:
+                    dataset_with_classification.append({
+                        # "timestamp": start_time,
+                        # "speed": ego_speed,
+                        "x": vertex[0],
+                        "y": vertex[1],
+                        "label": "true"
+                    })
             true_dps += 1
         else:
+            cex = result[1]
+            for vertex in cex:
+                    dataset_with_classification.append({
+                        "x": vertex[0],
+                        "y": vertex[1],
+                        "label": "false"
+                    })
             false_dps += 1
-        dataset_with_classification.append(datapoint)
+
         print(f"True datapoints: {true_dps}, False datapoints: {false_dps}, Unknowns: {len(unknowns)}")
 
     # Save the dataset with classification
