@@ -74,8 +74,8 @@ class PCSynthesis:
         return cexs
 
     def test(self):
-        self.dtree_learner.learn("datasets_pc/dataset_1.5.csv")
-        tree = self.dtree_learner.parse_tree_json("dataset/dataset.json")
+        self.dtree_learner.generate_features()
+        tree = self.dtree_learner.get_pre_from_json("out/dataset.json")
         cexs = self.dtree_checker.check(tree, pred_len=2)
         if len(cexs) > 0:
             print(f"{len(cexs)} counterexamples found")
@@ -105,7 +105,7 @@ if __name__ == "__main__":
         dataset_path = "classified_dataset.csv"
     else:
         dataset_path = sys.argv[1]
-    pcs = PCSynthesis(dataset_path, 45.5)
+    pcs = PCSynthesis(dataset_path)
     pcs.run()
     # pcs.test()
     print("PCSynthesis completed.")

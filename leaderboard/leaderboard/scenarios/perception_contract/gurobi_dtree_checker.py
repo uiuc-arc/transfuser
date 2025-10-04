@@ -283,7 +283,8 @@ class GurobiDTreeChecker(DTreeChecker):
                     if is_valid:
                         valid_cexs.append(cex)
                     else:
-                        print(f"SPURIOUS COUNTEREXAMPLE FOUND")
+                        print(f"Spurious counterexample found: {cex}")
+                        valid_cexs.append(cex)
             else:
                 print(f"No counterexample found for conjunct {i+1}")
         
@@ -483,8 +484,12 @@ class GurobiDTreeChecker(DTreeChecker):
         
         # Optimize
         model.optimize()
-        
-        if model.status == GRB.OPTIMAL:
+
+        if model.status == gp.GRB.INF_OR_UNBD:
+            model.setParam("DualReductions", 0)
+            model.optimize()
+
+        if model.status in [gp.GRB.OPTIMAL, gp.GRB.SUBOPTIMAL]:
             cexs = []
             for i in range(model.SolCount):
                 model.setParam(GRB.Param.SolutionNumber, i)
@@ -497,12 +502,25 @@ class GurobiDTreeChecker(DTreeChecker):
                         ego_state['sin_yaw'].X,
                         ego_state['cos_yaw'].X
                     ])
-                cexs.append(cex)
+                if cex not in cexs:
+                    cexs.append(cex)
+            self.cexes.extend(cexs)
 
-            self.cexes.extend(cexs)  # Store only the first part of the counterexample
+        elif model.status == gp.GRB.INFEASIBLE:
+            print("Model is infeasible, no counterexample for conjunct.")
+            return []
+
+        elif model.status == gp.GRB.INTERRUPTED:
+            raise KeyboardInterrupt
+
+        else:
+            if model.status == gp.GRB.INF_OR_UNBD:
+                print("Model is either infeasible or unbounded, no counterexample found.")
+                return []
+
+        if cexs:
             return cexs
         else:
-            print(f"No counterexample found for conjunct. Status: {model.status}")
             return None
 
 
