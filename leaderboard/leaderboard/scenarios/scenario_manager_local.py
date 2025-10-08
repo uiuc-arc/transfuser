@@ -369,14 +369,17 @@ class ScenarioManager(object):
         self.scenario_duration_game = self.end_game_time - self.start_game_time
 
         current_dataset = None
-        if os.path.exists('datasets_v1/dataset_velocity_15.0.json'):
-            with open('datasets_v1/dataset_velocity_15.0.json', 'r') as f:
+        if os.path.exists('datasets_v1') is False:
+            os.makedirs('datasets_v1')
+
+        if os.path.exists('datasets_v1/dataset_velocity_3.0.json'):
+            with open('datasets_v1/dataset_velocity_3.0.json', 'r') as f:
                 current_dataset = json.load(f)
 
         if current_dataset is not None:
             self.dataset = current_dataset + self.dataset
 
-        with open('datasets_v1/dataset_velocity_15.0.json', 'w') as f:
+        with open('datasets_v1/dataset_velocity_3.0.json', 'w') as f:
             json.dump(self.dataset, f, indent=4)
 
         if self.get_running_status():

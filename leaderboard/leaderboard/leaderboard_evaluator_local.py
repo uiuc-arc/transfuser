@@ -21,6 +21,8 @@ import importlib
 import os
 import pkg_resources
 import sys
+import pdb
+# pdb.set_trace()
 import carla
 import signal
 
@@ -85,6 +87,7 @@ class LeaderboardEvaluator(object):
         self.world = self.client.load_world('Town01')
         self.traffic_manager = self.client.get_trafficmanager(int(args.trafficManagerPort))
 
+        # pdb.set_trace()
         dist = pkg_resources.get_distribution("carla")
         if dist.version != 'leaderboard':
             if LooseVersion(dist.version) < LooseVersion('0.9.10'):
@@ -223,8 +226,12 @@ class LeaderboardEvaluator(object):
             self.world.tick()
         else:
             self.world.wait_for_tick()
-
-        if CarlaDataProvider.get_map().name != town:
+        print("Map loaded: {}".format(CarlaDataProvider.get_map().name.split('/')[-1]))
+        print("Town required: {}".format(town))
+        loaded_map = CarlaDataProvider.get_map().name
+        if loaded_map == "" or loaded_map is None:
+            raise Exception("The CARLA server does not have any map loaded!")
+        if loaded_map.split('/')[-1] != town:
             raise Exception("The CARLA server uses the wrong map!"
                             "This scenario requires to use map {}".format(town))
 
@@ -396,6 +403,9 @@ class LeaderboardEvaluator(object):
         """
         Run the challenge mode
         """
+        print(f"Using routes file: {args.routes}")
+        print(f"Using scenarios file: {args.scenarios}")
+        print("Using agent: {}".format(args.agent))
         route_indexer = RouteIndexer(args.routes, args.scenarios, args.repetitions)
         # breakpoint()
 
