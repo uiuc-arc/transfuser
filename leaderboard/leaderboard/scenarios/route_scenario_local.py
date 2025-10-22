@@ -196,7 +196,8 @@ class RouteScenario(BasicScenario):
                                                              self.sampled_scenarios_definitions,
                                                              scenarios_per_tick=10,
                                                              timeout=self.timeout,
-                                                             debug_mode=debug_mode>1)
+                                                             debug_mode=debug_mode>1,
+                                                             other_config=config.other_config)
 
         super(RouteScenario, self).__init__(name=config.name,
                                             ego_vehicles=[ego_vehicle],
@@ -359,7 +360,7 @@ class RouteScenario(BasicScenario):
         return sampled_scenarios
 
     def _build_scenario_instances(self, world, ego_vehicle, scenario_definitions,
-                                  scenarios_per_tick=5, timeout=300, debug_mode=False):
+                                  scenarios_per_tick=5, timeout=300, debug_mode=False, other_config=None):
         """
         Based on the parsed route and possible scenarios, build all the scenario classes.
         """
@@ -394,6 +395,7 @@ class RouteScenario(BasicScenario):
             scenario_configuration.ego_vehicles = [ActorConfigurationData('vehicle.lincoln.mkz2017',
                                                                           ego_vehicle.get_transform(),
                                                                           'hero')]
+            scenario_configuration.other_config = other_config
             route_var_name = "ScenarioRouteNumber{}".format(scenario_number)
             scenario_configuration.route_var_name = route_var_name
             try:

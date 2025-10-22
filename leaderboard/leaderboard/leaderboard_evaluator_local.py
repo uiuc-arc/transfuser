@@ -419,6 +419,9 @@ class LeaderboardEvaluator(object):
         while route_indexer.peek():
             # setup
             config = route_indexer.next()
+            print("\n\033[1m================ Starting route: {} (repetition {}) ================\033[0m".format(
+                config.name, config.repetition_index))
+            print(f"Config: {config}")
 
             # run
             # pdb.set_trace() 

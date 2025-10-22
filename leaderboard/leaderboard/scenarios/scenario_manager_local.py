@@ -290,6 +290,10 @@ class ScenarioManager(object):
                 bbox = [(vertex.x, vertex.y) for vertex in bbox]
                 bbox = unique(bbox)
 
+                relative_bbox = self.other_actors[0].bounding_box.get_world_vertices(new_transform)
+                relative_bbox = [(vertex.x, vertex.y) for vertex in relative_bbox]
+                relative_bbox = unique(relative_bbox)
+
                 other_forward = self.other_actors[0].get_transform().get_forward_vector()
                 other_forward = [other_forward.x, other_forward.y]
                 # print("Other forward vector: ", other_forward)
@@ -311,11 +315,13 @@ class ScenarioManager(object):
                     # print("Safety check result: ", datapoint[2])
                     datapoint = {
                         "timestamp": timestamp.elapsed_seconds,
-                        "ego_bbox": ego_bbox,
-                        "npc_bbox": bbox,
-                        "npc_forward": other_forward,
-                        "ego_speed": ego_speed,
-                        "waypoints": waypoints.tolist(),
+                        # "ego_bbox": ego_bbox,
+                        # "npc_bbox": bbox,
+                        # "npc_forward": other_forward,
+                        # "ego_speed": ego_speed,
+                        # "waypoints": waypoints.tolist(),
+                        "npc_bbox_relative": relative_bbox,
+                        "ego_bbox_origin": ego_bbox_origin
                     }
                     print("i = ", frame_num, ", timestamp = ", timestamp.elapsed_seconds)
                     self.dataset.append(datapoint)
@@ -372,14 +378,14 @@ class ScenarioManager(object):
         if os.path.exists('datasets_v1') is False:
             os.makedirs('datasets_v1')
 
-        if os.path.exists('datasets_v1/dataset_velocity_3.0.json'):
-            with open('datasets_v1/dataset_velocity_3.0.json', 'r') as f:
+        if os.path.exists('datasets_v1/dataset_velocity_0.5.json'):
+            with open('datasets_v1/dataset_velocity_0.5.json', 'r') as f:
                 current_dataset = json.load(f)
 
         if current_dataset is not None:
             self.dataset = current_dataset + self.dataset
 
-        with open('datasets_v1/dataset_velocity_3.0.json', 'w') as f:
+        with open('datasets_v1/dataset_velocity_0.5.json', 'w') as f:
             json.dump(self.dataset, f, indent=4)
 
         if self.get_running_status():

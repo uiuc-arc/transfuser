@@ -6,8 +6,9 @@ import cv2
 import carla
 from PIL import Image
 from collections import deque
-
 import torch
+from distutils.version import LooseVersion
+import pkg_resources
 import numpy as np
 import math
 
@@ -186,6 +187,18 @@ class HybridAgent(autonomous_agent.AutonomousAgent):
         return sensors
 
     def tick(self, input_data):
+        # print all the input data
+        print("Step: ", self.step)
+        print("Input data keys: ", input_data.keys())
+        print("Input data rgb_front shape: ", input_data['rgb_front'][1].shape)
+        print("Input data gps: ", input_data['gps'][1])
+        print("Input data speed: ", input_data['speed'][1])
+        print("Input data imu: ", input_data['imu'][1])
+        if 'lidar' in input_data:
+            print("Input data lidar shape: ", input_data['lidar'][1].shape)
+        if 'rgb_back' in input_data:
+            print("Input data rgb_back shape: ", input_data['rgb_back'][1].shape)
+        print("--------------------------------------------------")
         rgb = []
         rgb_original = []
         for pos in ['left', 'front', 'right']:
@@ -204,6 +217,11 @@ class HybridAgent(autonomous_agent.AutonomousAgent):
             cv2.imwrite(original_rgb_log + '/step_' + str(self.step) + '.png', rgb_original)
 
         gps = input_data['gps'][1][:2]
+        
+        dist = pkg_resources.get_distribution("carla")
+        if dist.version != 'leaderboard':
+            if LooseVersion(dist.version) != LooseVersion('0.9.10'):
+                gps = [-gps[0], gps[1]]  # invert axis for carla version != 0.9.10
         speed = input_data['speed'][1]['speed']
         compass = input_data['imu'][1][-1]
         if (np.isnan(compass) == True): # CARLA 0.9.10 occasionally sends NaN values in the compass
@@ -295,7 +313,12 @@ class HybridAgent(autonomous_agent.AutonomousAgent):
             is_stuck = True
             self.forced_move += 1
 
-
+        # print all the inputs to the model
+        print("Step: ", self.step, "Target point: ", target_point[0].cpu().numpy(), "Velocity: ", gt_velocity.item(), "Next command: ", tick_data['next_command'], "Is stuck: ", is_stuck)
+        print("GPS raw: ", tick_data['gps'], "Compass: ", tick_data['compass'], "Speed: ", tick_data['speed'])
+        print("Image shape: ", image.shape, "LiDAR bev shape: ", lidar_bev.shape if type(lidar_bev) is torch.Tensor else lidar_bev[0].shape, "Target point image shape: ", target_point_image.shape, "Target point shape: ", target_point.shape, "Velocity shape: ", velocity.shape)
+        print("Stuck detector: ", self.stuck_detector, "Forced move: ", self.forced_move)
+        print("--------------------------------------------------")
         # forward pass
         with torch.no_grad():
             pred_wps = []
@@ -444,7 +467,7 @@ class HybridAgent(autonomous_agent.AutonomousAgent):
 
     def non_maximum_suppression(self, bounding_boxes, iou_treshhold):
         filtered_boxes = []
-        bounding_boxes = np.array(list(itertools.chain.from_iterable(bounding_boxes)), dtype=np.object)
+        bounding_boxes = np.array(list(itertools.chain.from_iterable(bounding_boxes)), dtype=object)
 
         if(bounding_boxes.size == 0): #If no bounding boxes are detected can't do NMS
             return filtered_boxes

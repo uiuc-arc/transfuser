@@ -4,7 +4,7 @@ export WORK_DIR=${2:-/home/adharsh/repos/transfuser}
 export CARLA_SERVER=${CARLA_ROOT}/CarlaUE4.sh
 export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI
 export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI/carla
-export PYTHONPATH=$PYTHONPATH:$CARLA_ROOT/PythonAPI/carla/dist/carla-0.9.10-py3.7-linux-x86_64.egg
+# export PYTHONPATH=$PYTHONPATH:$CARLA_ROOT/PythonAPI/carla/dist/carla-0.9.10-py3.7-linux-x86_64.egg
 export SCENARIO_RUNNER_ROOT=${WORK_DIR}/scenario_runner
 export LEADERBOARD_ROOT=${WORK_DIR}/leaderboard
 export PYTHONPATH="${CARLA_ROOT}/PythonAPI/carla/":"${SCENARIO_RUNNER_ROOT}":"${LEADERBOARD_ROOT}":${PYTHONPATH}
@@ -16,7 +16,7 @@ export CHALLENGE_TRACK_CODENAME=SENSORS
 export CHECKPOINT_ENDPOINT=${WORK_DIR}/results/latentTF_longest6.json
 export TEAM_AGENT=${WORK_DIR}/team_code_transfuser/submission_agent.py
 export TEAM_CONFIG=${WORK_DIR}/model_ckpt/latentTF
-export DEBUG_CHALLENGE=0
+export DEBUG_CHALLENGE=1
 export RESUME=1
 export DATAGEN=0
 

@@ -1,8 +1,9 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <routes>
   <route id="0" town="Town01">
-    <waypoint x="120.212006" y="59.523838" z="0.033585" pitch="-0.019200" roll="0.000290" yaw="0.301839"/>
-    <!-- <waypoint x="114.990242" y="59.497005" z="0.0" pitch="0.0" roll="0.0" yaw="-0.006982"/> -->
-    <waypoint x="158.060257" y="16.202417" z="0.0" pitch="0.0" roll="0.0" yaw="270.069580"/>
+    <waypoint x="120.212006" y="59.523838" z="0.033585" pitch="-0.0192" roll="0.00029" yaw="0.301839"/>
+    <waypoint x="158.060257" y="16.202417" z="0.0" pitch="0.0" roll="0.0" yaw="270.06958"/>
+  <weather cloudiness="97" precipitation="95" precipitation_deposits="62" wind_intensity="4" sun_azimuth_angle="350" sun_altitude_angle="-13" />
+  <other_config npc_speed="2.0" npc_min_starting_distance="19" />
   </route>
 </routes>

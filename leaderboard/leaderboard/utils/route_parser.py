@@ -64,6 +64,7 @@ class RouteParser(object):
             new_config.town = route.attrib['town']
             new_config.name = "RouteScenario_{}".format(route_id)
             new_config.weather = RouteParser.parse_weather(route)
+            new_config.other_config = RouteParser.parse_other_config(route)
             new_config.scenario_file = scenario_file
 
             waypoint_list = []  # the list of waypoints that can be found on this route
@@ -116,6 +117,23 @@ class RouteParser(object):
                     weather.fog_falloff = float(weather_attrib.attrib['fog_falloff'])
 
         return weather
+
+    @staticmethod
+    def parse_other_config(route):
+        """
+        Returns a dict with other configuration parameters for that route.
+        """
+
+        other_config = {}
+        route_other_config = route.find("other_config")
+        if route_other_config is not None:
+            for other_attrib in route.iter("other_config"):
+                if 'npc_speed' in other_attrib.attrib:
+                    other_config['npc_speed'] = float(other_attrib.attrib['npc_speed'])
+                if 'npc_min_starting_distance' in other_attrib.attrib:
+                    other_config['npc_min_starting_distance'] = float(other_attrib.attrib['npc_min_starting_distance'])
+
+        return other_config
 
 
     @staticmethod

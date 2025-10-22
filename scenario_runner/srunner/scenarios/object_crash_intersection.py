@@ -125,6 +125,9 @@ class VehicleTurningRight(BasicScenario):
         self._wmap = CarlaDataProvider.get_map()
         self._reference_waypoint = self._wmap.get_waypoint(config.trigger_points[0].location)
         self._trigger_location = config.trigger_points[0].location
+        self._other_actors_params = config.other_config
+        if "npc_speed" in self._other_actors_params:
+            self._other_actor_target_velocity = self._other_actors_params["npc_speed"]
         self._other_actor_transform = None
         self._num_lane_changes = 0
         # Timeout of scenario in seconds
@@ -205,7 +208,10 @@ class VehicleTurningRight(BasicScenario):
         lane_width = self._reference_waypoint.lane_width
         dist_to_travel = lane_width + (1.10 * lane_width * self._num_lane_changes)
 
-        bycicle_start_dist = 13 + dist_to_travel
+        if "npc_min_starting_distance" in self._other_actors_params:
+            bycicle_start_dist = self._other_actors_params["npc_min_starting_distance"] + dist_to_travel
+        else:
+            bycicle_start_dist = 13 + dist_to_travel
 
         if self._ego_route is not None:
             trigger_distance = InTriggerDistanceToLocationAlongRoute(self.ego_vehicles[0],
@@ -292,6 +298,9 @@ class VehicleTurningLeft(BasicScenario):
         self._wmap = CarlaDataProvider.get_map()
         self._reference_waypoint = self._wmap.get_waypoint(config.trigger_points[0].location)
         self._trigger_location = config.trigger_points[0].location
+        self._other_actors_params = config.other_config
+        if "npc_speed" in self._other_actors_params:
+            self._other_actor_target_velocity = self._other_actors_params["npc_speed"]
         self._other_actor_transform = None
         self._num_lane_changes = 0
         # Timeout of scenario in seconds
@@ -372,7 +381,10 @@ class VehicleTurningLeft(BasicScenario):
         lane_width = self._reference_waypoint.lane_width
         dist_to_travel = lane_width + (1.10 * lane_width * self._num_lane_changes)
 
-        bycicle_start_dist = 13 + dist_to_travel
+        if "npc_min_starting_distance" in self._other_actors_params:
+            bycicle_start_dist = self._other_actors_params["npc_min_starting_distance"] + dist_to_travel
+        else:
+            bycicle_start_dist = 19 + dist_to_travel
 
         if self._ego_route is not None:
             trigger_distance = InTriggerDistanceToLocationAlongRoute(self.ego_vehicles[0],
@@ -385,9 +397,9 @@ class VehicleTurningLeft(BasicScenario):
                                                           bycicle_start_dist)
 
         actor_velocity = KeepVelocity(self.other_actors[0], self._other_actor_target_velocity)
-        actor_traverse = DriveDistance(self.other_actors[0], 1.0 * dist_to_travel)
+        actor_traverse = DriveDistance(self.other_actors[0], 0.30 * dist_to_travel)
         post_timer_velocity_actor = KeepVelocity(self.other_actors[0], self._other_actor_target_velocity)
-        post_timer_traverse_actor = DriveDistance(self.other_actors[0], 0.0 * dist_to_travel)
+        post_timer_traverse_actor = DriveDistance(self.other_actors[0], 0.70 * dist_to_travel)
         end_condition = TimeOut(5)
 
         # non leaf nodes
@@ -457,10 +469,13 @@ class VehicleTurningRoute(BasicScenario):
         """
         print("VehicleTurningRoute: Using route configuration")
 
-        self._other_actor_target_velocity = 15.0
+        self._other_actor_target_velocity = 0.5
         self._wmap = CarlaDataProvider.get_map()
         self._reference_waypoint = self._wmap.get_waypoint(config.trigger_points[0].location)
         self._trigger_location = config.trigger_points[0].location
+        self._other_actors_params = config.other_config
+        if "npc_speed" in self._other_actors_params:
+            self._other_actor_target_velocity = self._other_actors_params["npc_speed"]
         self._other_actor_transform = None
         self._num_lane_changes = 0
         # Timeout of scenario in seconds
@@ -543,7 +558,10 @@ class VehicleTurningRoute(BasicScenario):
         lane_width = self._reference_waypoint.lane_width
         dist_to_travel = lane_width + (1.10 * lane_width * self._num_lane_changes)
 
-        bycicle_start_dist = 5 + dist_to_travel
+        if "npc_min_starting_distance" in self._other_actors_params:
+            bycicle_start_dist = self._other_actors_params["npc_min_starting_distance"] + dist_to_travel
+        else:
+            bycicle_start_dist = 19 + dist_to_travel
 
         if self._ego_route is not None:
             trigger_distance = InTriggerDistanceToLocationAlongRoute(self.ego_vehicles[0],
@@ -556,9 +574,9 @@ class VehicleTurningRoute(BasicScenario):
                                                           bycicle_start_dist)
 
         actor_velocity = KeepVelocity(self.other_actors[0], self._other_actor_target_velocity)
-        actor_traverse = DriveDistance(self.other_actors[0], 1.0 * dist_to_travel)
+        actor_traverse = DriveDistance(self.other_actors[0], 0.30 * dist_to_travel)
         post_timer_velocity_actor = KeepVelocity(self.other_actors[0], self._other_actor_target_velocity)
-        post_timer_traverse_actor = DriveDistance(self.other_actors[0], 0.0 * dist_to_travel)
+        post_timer_traverse_actor = DriveDistance(self.other_actors[0], 0.70 * dist_to_travel)
         end_condition = TimeOut(5)
 
         # non leaf nodes

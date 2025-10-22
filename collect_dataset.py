@@ -44,7 +44,7 @@ def collect_dataset(min_velocity=3.0, max_velocity=15.0, increment=0.5):
         with open("leaderboard/leaderboard/scenarios/scenario_manager_local.py", 'r') as file:
             content = file.read()
         # Replace the dataset path in the scenario manager
-        line_nums = [371, 372, 378]
+        line_nums = [374, 375, 381]
         content_lines = content.split('\n')
         new_line = f"        if os.path.exists('datasets_v1/{dataset_path}'):"
         content_lines[line_nums[0]] = new_line
