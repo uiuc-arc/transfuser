@@ -4,6 +4,7 @@ import json
 import sys
 import numpy as np
 from typing import List, Tuple
+import matplotlib.pyplot as plt
 
 EPSILON = 1e-6
 
@@ -85,7 +86,14 @@ def find_bubble_wrap(dataset_path, car_dims, default_bubble_size=None):
         dataset = dataset["data"]
         sorted_dataset = sorted(dataset, key=lambda x: x["timestamp"])
         dataset = sorted_dataset
-        dataset = [dataset[390]]
+        dataset = dataset[:378]
+        for idx, entry in enumerate(dataset):
+            new_bbox = []
+            for corner in entry["npc_bbox_relative"]:
+                new_corner = (corner[0], corner[1])
+                new_bbox.append(new_corner)
+            dataset[idx]["npc_bbox_relative"] = new_bbox
+
         print(dataset)
 
     if default_bubble_size is None:
@@ -110,6 +118,7 @@ def find_bubble_wrap(dataset_path, car_dims, default_bubble_size=None):
     lower_right = (x, y_2)
     bubble_corners = [upper_left, upper_right, lower_right, lower_left]
 
+    fig, ax = plt.subplots(figsize=(8, 6))
     for db_idx, entry in enumerate(dataset):
         npc_corners = entry["npc_bbox_relative"]
         if len(npc_corners) > 4:
@@ -135,6 +144,10 @@ def find_bubble_wrap(dataset_path, car_dims, default_bubble_size=None):
         for idx in sorted_indices:
             sorted_unique_vertices.append(npc_corners[idx])
 
+        npc = sorted_unique_vertices
+        npc = np.vstack([npc, npc[0]])  # close the box
+        ax.plot(npc[:, 0], npc[:, 1], "r-", lw=1.5, alpha=0.6)
+
         add_no_intersection_constraint(model, bubble_corners, sorted_unique_vertices)
 
     # Example objective: maximize bubble area
@@ -142,6 +155,45 @@ def find_bubble_wrap(dataset_path, car_dims, default_bubble_size=None):
     model.optimize()
 
     model.write("model.lp")
+
+    # Plot the car (for reference)
+    car_rect = np.array(
+        [
+            [-x_0, -y_0],
+            [-x_0, y_0],
+            [x_0, y_0],
+            [x_0, -y_0],
+            [-x_0, -y_0],
+        ]
+    )
+    ax.plot(car_rect[:, 0], car_rect[:, 1], "k-", lw=1, label="Car")
+
+    bubble = None
+    if model.status in (GRB.OPTIMAL, GRB.SUBOPTIMAL):
+        bx, by1, by2 = x.X, y_1.X, y_2.X
+        bubble = np.array(
+            [
+                [-x_0, by1],
+                [bx, by1],
+                [bx, by2],
+                [-x_0, by2],
+                [-x_0, by1],
+            ]
+        )
+        ax.plot(bubble[:, 0], bubble[:, 1], "b-", lw=2.5, label="Bubble Wrap")
+        ax.fill(bubble[:, 0], bubble[:, 1], color="blue", alpha=0.15)
+
+    ax.set_aspect("equal", "box")
+    ax.set_title("NPCs and Optimized Bubble Wrap")
+    ax.set_xlabel("X (meters)")
+    ax.set_ylabel("Y (meters)")
+    ax.set_ylim(-20, 20)
+    ax.set_xlim(-20, 20)
+    ax.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("plot.png")
+    plt.show()
 
     if model.status == GRB.OPTIMAL or model.status == GRB.SUBOPTIMAL:
         return {

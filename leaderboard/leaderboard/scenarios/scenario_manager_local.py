@@ -33,6 +33,7 @@ from leaderboard.utils.result_writer import ResultOutputProvider
 from leaderboard.scenarios.perception_contract.safety import is_wp_safe
 from leaderboard.scenarios.perception_contract.process_dataset import SafetyChecker
 
+
 def get_rotation_matrix(roll, pitch, yaw):
     """
     Get rotation matrix from roll, pitch, yaw angles (in degrees)
@@ -40,22 +41,34 @@ def get_rotation_matrix(roll, pitch, yaw):
     """
     # Convert to radians
     roll_rad = math.radians(roll)
-    pitch_rad = math.radians(pitch) 
+    pitch_rad = math.radians(pitch)
     yaw_rad = math.radians(yaw)
-    
+
     # Rotation matrices for each axis
-    R_x = np.array([[1, 0, 0],
-                    [0, math.cos(roll_rad), -math.sin(roll_rad)],
-                    [0, math.sin(roll_rad), math.cos(roll_rad)]])
-    
-    R_y = np.array([[math.cos(pitch_rad), 0, math.sin(pitch_rad)],
-                    [0, 1, 0],
-                    [-math.sin(pitch_rad), 0, math.cos(pitch_rad)]])
-    
-    R_z = np.array([[math.cos(yaw_rad), -math.sin(yaw_rad), 0],
-                    [math.sin(yaw_rad), math.cos(yaw_rad), 0],
-                    [0, 0, 1]])
-    
+    R_x = np.array(
+        [
+            [1, 0, 0],
+            [0, math.cos(roll_rad), -math.sin(roll_rad)],
+            [0, math.sin(roll_rad), math.cos(roll_rad)],
+        ]
+    )
+
+    R_y = np.array(
+        [
+            [math.cos(pitch_rad), 0, math.sin(pitch_rad)],
+            [0, 1, 0],
+            [-math.sin(pitch_rad), 0, math.cos(pitch_rad)],
+        ]
+    )
+
+    R_z = np.array(
+        [
+            [math.cos(yaw_rad), -math.sin(yaw_rad), 0],
+            [math.sin(yaw_rad), math.cos(yaw_rad), 0],
+            [0, 0, 1],
+        ]
+    )
+
     # Combined rotation matrix (Z * Y * X)
     rotation_matrix = R_z @ R_y @ R_x
     return rotation_matrix
@@ -73,16 +86,15 @@ def get_roll_pitch_yaw_from_matrix(matrix):
     """
     pitch = math.asin(matrix[2, 0])
     cos_pitch_sign = np.sign(math.cos(pitch))
-    roll = math.atan2(
-        -matrix[2, 1] * cos_pitch_sign, matrix[2, 2] * cos_pitch_sign)
-    yaw = math.atan2(
-        matrix[1, 0] * cos_pitch_sign, matrix[0, 0] * cos_pitch_sign)
+    roll = math.atan2(-matrix[2, 1] * cos_pitch_sign, matrix[2, 2] * cos_pitch_sign)
+    yaw = math.atan2(matrix[1, 0] * cos_pitch_sign, matrix[0, 0] * cos_pitch_sign)
     return math.degrees(roll), math.degrees(pitch), math.degrees(yaw)
+
 
 def get_yaw(vehicle_current_transform, map):
     """
     Get the yaw angle of a vehicle along a route (in radians).
-    The yaw angle is the angle between the vehicle's forward 
+    The yaw angle is the angle between the vehicle's forward
     vector and the route's tangent vector.
     """
     vehicle_current_forward = vehicle_current_transform.get_forward_vector()
@@ -99,9 +111,7 @@ def get_yaw(vehicle_current_transform, map):
         vehicle_current_forward,
         waypoint_forward,
     )
-    linalg_ = np.linalg.norm(vehicle_current_forward) * np.linalg.norm(
-        waypoint_forward
-    )
+    linalg_ = np.linalg.norm(vehicle_current_forward) * np.linalg.norm(waypoint_forward)
     if linalg_ == 0:
         __dot = 1
     else:
@@ -117,7 +127,6 @@ def get_yaw(vehicle_current_transform, map):
 
 
 class ScenarioManager(object):
-
     """
     Basic scenario manager class. This class holds all functionality
     required to start, run and stop a scenario.
@@ -132,7 +141,6 @@ class ScenarioManager(object):
        the scenario execution
     4. If needed, cleanup with manager.stop_scenario()
     """
-
 
     def __init__(self, timeout, debug_mode=False):
         """
@@ -247,32 +255,38 @@ class ScenarioManager(object):
 
             except Exception as e:
                 raise AgentError(e)
-            # 
+
+            #
             # Perception contract
-            # 
+            #
             def unique(list):
                 """
                 Remove duplicates from a list while preserving order.
                 """
                 seen = set()
                 return [x for x in list if not (x in seen or seen.add(x))]
-            
+
             ego_transform = self.ego_vehicles[0].get_transform()
             ego_matrix_inv = ego_transform.get_inverse_matrix()
 
             origin_transform = carla.Transform(carla.Location(), carla.Rotation())
-            ego_bbox_origin = self.ego_vehicles[0].bounding_box.get_world_vertices(origin_transform)
+            ego_bbox_origin = self.ego_vehicles[0].bounding_box.get_world_vertices(
+                origin_transform
+            )
             ego_bbox_origin = [(vertex.x, vertex.y) for vertex in ego_bbox_origin]
             ego_bbox_origin = unique(ego_bbox_origin)
 
-            ego_bbox = self.ego_vehicles[0].bounding_box.get_world_vertices(ego_transform)
+            ego_bbox = self.ego_vehicles[0].bounding_box.get_world_vertices(
+                ego_transform
+            )
             ego_bbox = [(vertex.x, vertex.y) for vertex in ego_bbox]
             ego_bbox = unique(ego_bbox)
             # print("Ego bounding box: ", ego_bbox_origin)
             # print("------------------------------------------------")
 
-
-            if self.other_actors[0].is_alive and hasattr(self.other_actors[0], 'bounding_box'):
+            if self.other_actors[0].is_alive and hasattr(
+                self.other_actors[0], "bounding_box"
+            ):
                 non_ego_matrix = self.other_actors[0].get_transform().get_matrix()
                 relative_matrix = np.dot(ego_matrix_inv, non_ego_matrix)
                 roll, pitch, yaw = get_roll_pitch_yaw_from_matrix(relative_matrix)
@@ -280,21 +294,27 @@ class ScenarioManager(object):
                     carla.Location(
                         x=relative_matrix[0, 3],
                         y=relative_matrix[1, 3],
-                        z=relative_matrix[2, 3]
+                        z=relative_matrix[2, 3],
                     ),
-                    carla.Rotation(roll=roll, pitch=pitch, yaw=yaw)
+                    carla.Rotation(roll=roll, pitch=pitch, yaw=yaw),
                 )
 
                 bbox = self.other_actors[0].bounding_box
-                bbox = self.other_actors[0].bounding_box.get_world_vertices(self.other_actors[0].get_transform())
+                bbox = self.other_actors[0].bounding_box.get_world_vertices(
+                    self.other_actors[0].get_transform()
+                )
                 bbox = [(vertex.x, vertex.y) for vertex in bbox]
                 bbox = unique(bbox)
 
-                relative_bbox = self.other_actors[0].bounding_box.get_world_vertices(new_transform)
+                relative_bbox = self.other_actors[0].bounding_box.get_world_vertices(
+                    new_transform
+                )
                 relative_bbox = [(vertex.x, vertex.y) for vertex in relative_bbox]
                 relative_bbox = unique(relative_bbox)
 
-                other_forward = self.other_actors[0].get_transform().get_forward_vector()
+                other_forward = (
+                    self.other_actors[0].get_transform().get_forward_vector()
+                )
                 other_forward = [other_forward.x, other_forward.y]
                 # print("Other forward vector: ", other_forward)
                 # ego_rotation_matrix_inv = np.array(ego_matrix_inv)[:3, :3]
@@ -321,9 +341,11 @@ class ScenarioManager(object):
                         # "ego_speed": ego_speed,
                         # "waypoints": waypoints.tolist(),
                         "npc_bbox_relative": relative_bbox,
-                        "ego_bbox_origin": ego_bbox_origin
+                        "ego_bbox_origin": ego_bbox_origin,
                     }
-                    print("i = ", frame_num, ", timestamp = ", timestamp.elapsed_seconds)
+                    print(
+                        "i = ", frame_num, ", timestamp = ", timestamp.elapsed_seconds
+                    )
                     self.dataset.append(datapoint)
                 else:
                     print("No waypoints available for safety check.")
@@ -335,8 +357,7 @@ class ScenarioManager(object):
 
             if self._debug_mode:
                 print("\n")
-                py_trees.display.print_ascii_tree(
-                    self.scenario_tree, show_status=True)
+                py_trees.display.print_ascii_tree(self.scenario_tree, show_status=True)
                 sys.stdout.flush()
 
             if self.scenario_tree.status != py_trees.common.Status.RUNNING:
@@ -344,13 +365,17 @@ class ScenarioManager(object):
 
             spectator = CarlaDataProvider.get_world().get_spectator()
             ego_trans = self.ego_vehicles[0].get_transform()
-            
+
             # For third-person view
             # location = ego_trans.transform(carla.Location(x=-4.5, z=2.3))
             # spectator.set_transform(carla.Transform(location, carla.Rotation(pitch=-15.0, yaw=ego_trans.rotation.yaw)))
-            
+
             # For bird's eye view
-            spectator.set_transform(carla.Transform(ego_trans.location + carla.Location(z=50), carla.Rotation(pitch=-90)))
+            spectator.set_transform(
+                carla.Transform(
+                    ego_trans.location + carla.Location(z=50), carla.Rotation(pitch=-90)
+                )
+            )
 
         if self._running and self.get_running_status():
             CarlaDataProvider.get_world().tick(self._timeout)
@@ -362,7 +387,7 @@ class ScenarioManager(object):
         """
         return self._watchdog.get_status()
 
-    def stop_scenario(self):
+    def stop_scenario(self, config=None):
         """
         This function triggers a proper termination of a scenario
         """
@@ -375,18 +400,30 @@ class ScenarioManager(object):
         self.scenario_duration_game = self.end_game_time - self.start_game_time
 
         current_dataset = None
-        if os.path.exists('datasets_v1') is False:
-            os.makedirs('datasets_v1')
+        if os.path.exists("datasets_v1") is False:
+            os.makedirs("datasets_v1")
 
-        if os.path.exists('datasets_v1/dataset_velocity_0.5.json'):
-            with open('datasets_v1/dataset_velocity_0.5.json', 'r') as f:
-                current_dataset = json.load(f)
+        # if current_dataset is not None:
+        #     self.dataset = current_dataset + self.dataset
 
-        if current_dataset is not None:
-            self.dataset = current_dataset + self.dataset
-
-        with open('datasets_v1/dataset_velocity_0.5.json', 'w') as f:
-            json.dump(self.dataset, f, indent=4)
+        with open("datasets_v1/dataset_velocity_0.5.json", "w") as f:
+            weather_params = {
+                k: config.weather.__getattribute__(k)
+                for k in dir(config.weather)
+                if not k.startswith("_")
+                and not isinstance(
+                    config.weather.__getattribute__(k), carla.WeatherParameters
+                )
+            }
+            config = {
+                "weather": weather_params,
+                "npc_speed": config.other_config["npc_speed"],
+                "npc_min_starting_distance": config.other_config[
+                    "npc_min_starting_distance"
+                ],
+            }
+            dump = {"config": config, "data": self.dataset}
+            json.dump(dump, f, indent=2)
 
         if self.get_running_status():
             if self.scenario is not None:
@@ -402,13 +439,13 @@ class ScenarioManager(object):
         """
         Analyzes and prints the results of the route
         """
-        global_result = '\033[92m'+'SUCCESS'+'\033[0m'
+        global_result = "\033[92m" + "SUCCESS" + "\033[0m"
 
         for criterion in self.scenario.get_criteria():
             if criterion.test_status != "SUCCESS":
-                global_result = '\033[91m'+'FAILURE'+'\033[0m'
+                global_result = "\033[91m" + "FAILURE" + "\033[0m"
 
         if self.scenario.timeout_node.timeout:
-            global_result = '\033[91m'+'FAILURE'+'\033[0m'
+            global_result = "\033[91m" + "FAILURE" + "\033[0m"
 
         ResultOutputProvider(self, global_result)

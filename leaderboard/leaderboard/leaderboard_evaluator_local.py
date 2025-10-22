@@ -378,7 +378,7 @@ class LeaderboardEvaluator(object):
         # Stop the scenario
         try:
             print("\033[1m> Stopping the route\033[0m")
-            self.manager.stop_scenario()
+            self.manager.stop_scenario(config)
             self._register_statistics(config, args.checkpoint, entry_status, crash_message)
 
             if args.record:
