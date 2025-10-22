@@ -14,6 +14,15 @@ CONFIG_DICT_KEYS = [
     "sun_altitude_angle",
     "npc_speed",
 ]
+CONFIG_KEY_BOUNDS = {
+    "cloudiness": (0.0, 100.0),
+    "precipitation": (0.0, 100.0),
+    "precipitation_deposits": (0.0, 100.0),
+    "wind_intensity": (0.0, 100.0),
+    "sun_azimuth_angle": (0.0, 360.0),
+    "sun_altitude_angle": (0.0, 90.0),
+    "npc_speed": (0.0, 30.0),
+}
 
 
 def create_config_dataset(

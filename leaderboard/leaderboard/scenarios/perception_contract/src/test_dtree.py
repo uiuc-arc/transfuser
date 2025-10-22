@@ -1,16 +1,28 @@
 import os
 import sys
 import numpy as np
-from synthesize_dtree import CONFIG_DICT_KEYS
+from synthesize_dtree import CONFIG_DICT_KEYS, CONFIG_KEY_BOUNDS
 import z3
 import gurobipy as gp
 from gurobipy import GRB
 
+CONFIG_EPSILONS = {
+    "cloudiness": 0.5,
+    "precipitation": 0.5,
+    "precipitation_deposits": 0.5,
+    "wind_intensity": 0.5,
+    "sun_azimuth_angle": 1.0,
+    "sun_altitude_angle": 1.0,
+    "npc_speed": 0.25,
+}
+MINUS_INF = -1e10
+PLUS_INF = 1e10
 
-def prepare_features(base_features, labels):
+
+def prepare_features(labels):
     feature_map = {}
     truth_map = {}
-    for i, feature in enumerate(base_features):
+    for i, feature in enumerate(CONFIG_DICT_KEYS):
         feature_map[i] = z3.Real(feature)
 
     if all(labels):
@@ -303,6 +315,90 @@ def dump_config_to_xml(config, file_path):
 
     with open(file_path, "w") as file:
         file.write(xml_string)
+
+
+def get_maximality_cex(conjunct: z3.BoolRef, sampler: function):
+    maximality_cex = {}
+    maximality_var_bounds = {}
+    maximality_model = gp.Model("maximality_cex")
+    maximality_var_map = {
+        var: maximality_model.addVar(lb=-GRB.INFINITY, name=f"var_{var}")
+        for var in CONFIG_DICT_KEYS
+    }
+    maximality_model.update()
+    z3_to_gurobi(conjunct, maximality_model, maximality_var_map)
+    for var in CONFIG_DICT_KEYS:
+        lb, ub = CONFIG_KEY_BOUNDS[var]
+        maximality_model.addConstr(
+            maximality_var_map[var] >= lb, name=f"bound_lb_{var}"
+        )
+        maximality_model.addConstr(
+            maximality_var_map[var] <= ub, name=f"bound_ub_{var}"
+        )
+    maximality_model.setParam("OutputFlag", 0)
+    maximality_model.setObjective(0, GRB.MINIMIZE)
+    maximality_model.optimize()
+    var_bounds = {}
+    if maximality_model.status == GRB.OPTIMAL:
+        for var in CONFIG_DICT_KEYS:
+            var_bounds[var] = (maximality_var_map[var].LB, maximality_var_map[var].UB)
+    for var in CONFIG_DICT_KEYS:
+        lb, ub = var_bounds[var]
+        epsilon = CONFIG_EPSILONS.get(var, 0.5)
+        maximality_var_bounds[var] = (
+            max(lb - epsilon, CONFIG_KEY_BOUNDS[var][0]),
+            min(ub + epsilon, CONFIG_KEY_BOUNDS[var][1]),
+        )
+        if maximality_var_bounds[var][0] > maximality_var_bounds[var][1]:
+            return None
+    for var in CONFIG_DICT_KEYS:
+        sample = sampler(maximality_var_bounds[var][0], maximality_var_bounds[var][1])
+        maximality_cex[var] = sample
+    return maximality_cex
+
+
+def get_safety_cex(conjunct: z3.BoolRef, sampler: function = None):
+    safety_cex = {}
+    safety_var_bounds = {}
+    safety_model = gp.Model("safety_cex")
+    safety_var_map = {
+        var: safety_model.addVar(lb=-GRB.INFINITY, name=f"var_{var}")
+        for var in CONFIG_DICT_KEYS
+    }
+    safety_model.update()
+    z3_to_gurobi(conjunct, safety_model, safety_var_map)
+    safety_model.setParam("OutputFlag", 0)
+    safety_model.setObjective(0, GRB.MINIMIZE)
+    safety_model.optimize()
+    if safety_model.status == GRB.OPTIMAL:
+        for var in CONFIG_DICT_KEYS:
+            safety_var_bounds[var] = (safety_var_map[var].LB, safety_var_map[var].UB)
+    else:
+        return None
+    for var in CONFIG_DICT_KEYS:
+        lb, ub = safety_var_bounds[var]
+        if sampler is not None:
+            sample = sampler(lb, ub)
+        else:
+            sample = (lb + ub) / 2.0
+        safety_cex[var] = sample
+    return safety_cex
+
+
+def get_cex_from_dtree(tree_json):
+    labels = [0.0, 1.0]
+    labels, feature_map, truth_map = prepare_features(labels)
+    z3_tree = parse_tree_json(tree_json["tree"], feature_map, truth_map)
+    conjuncts = list(candidate_to_conjuncts(z3_tree))
+    cexs = []
+    for conjunct in conjuncts:
+        cex = get_safety_cex(conjunct, np.random.uniform)
+        if cex is not None:
+            cexs.append(cex)
+        cex = get_maximality_cex(conjunct, np.random.uniform)
+        if cex is not None:
+            cexs.append(cex)
+    return z3_tree
 
 
 if __name__ == "__main__":
