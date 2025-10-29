@@ -6,7 +6,7 @@ import numpy as np
 from typing import List, Tuple
 import matplotlib.pyplot as plt
 
-EPSILON = 1e-6
+EPSILON = 1e-1
 
 
 def add_no_intersection_constraint(
@@ -56,7 +56,10 @@ def add_no_intersection_constraint(
             proj_vars = []
             for j, (x, y) in enumerate(corners):
                 v = model.addVar(lb=-GRB.INFINITY, name=f"{prefix}_{idx}_{j}")
-                model.addConstr(v == ax_x * x + ax_y * y)
+                if isinstance(x, gp.Var) or isinstance(y, gp.Var):
+                    model.addConstr(v == ax_x * x + ax_y * y)
+                else:
+                    model.addConstr(v == ax_x * float(x) + ax_y * float(y))
                 proj_vars.append(v)
             return proj_vars
 
@@ -182,6 +185,28 @@ def find_bubble_wrap(dataset_path, car_dims, default_bubble_size=None):
         )
         ax.plot(bubble[:, 0], bubble[:, 1], "b-", lw=2.5, label="Bubble Wrap")
         ax.fill(bubble[:, 0], bubble[:, 1], color="blue", alpha=0.15)
+        # plot the projections on each axis
+
+        for idx in range(4):
+            bubble_min = model.getVarByName(f"bubble_min_{idx}")
+            bubble_max = model.getVarByName(f"bubble_max_{idx}")
+            npc_min = model.getVarByName(f"npc_min_{idx}")
+            npc_max = model.getVarByName(f"npc_max_{idx}")
+            # plot projections
+            ax.plot(
+                [bubble_min.X, bubble_max.X],
+                [15 + idx, 15 + idx],
+                "b-",
+                lw=4,
+                label="Bubble Projection" if idx == 0 else "",
+            )
+            ax.plot(
+                [npc_min.X, npc_max.X],
+                [14 + idx, 14 + idx],
+                "r-",
+                lw=4,
+                label="NPC Projection" if idx == 0 else "",
+            )
 
     ax.set_aspect("equal", "box")
     ax.set_title("NPCs and Optimized Bubble Wrap")
@@ -215,10 +240,10 @@ if __name__ == "__main__":
     car_dimensions = {"length": 4.5, "width": 2.16}
     bubble_wrap = find_bubble_wrap(dataset_path, car_dimensions)
     if bubble_wrap is not None:
-        print("Optimal Bubble Wrap Dimensions:")
+        print("Bubble Wrap Dimensions:")
         print(f"x: {bubble_wrap['x']}")
         print(f"y_1: {bubble_wrap['y_1']}")
         print(f"y_2: {bubble_wrap['y_2']}")
         print(f"Area: {bubble_wrap['area']}")
     else:
-        print("No optimal bubble wrap found.")
+        print("No bubble wrap found.")
