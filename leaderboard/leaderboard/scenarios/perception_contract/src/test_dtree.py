@@ -5,6 +5,9 @@ from synthesize_dtree import CONFIG_DICT_KEYS, CONFIG_KEY_BOUNDS
 import z3
 import gurobipy as gp
 from gurobipy import GRB
+import json
+from typing import Callable as function
+import itertools
 
 CONFIG_EPSILONS = {
     "cloudiness": 0.5,
@@ -33,6 +36,41 @@ def prepare_features(labels):
         truth_map[0.0] = False
 
     return labels, feature_map, truth_map
+
+
+def parse_tree(tree, var_coeff_map) -> z3.BoolRef:
+    if tree["children"] is None:
+        # At a leaf node, return the clause
+        if tree["classification"]:
+            return z3.BoolVal(True)  # True leaf node
+        else:
+            return z3.BoolVal(False)  # False leaf node
+    elif len(tree["children"]) == 2:
+        # Post-order traversal
+        left = parse_tree(tree["children"][0], var_coeff_map)
+        right = parse_tree(tree["children"][1], var_coeff_map)
+        # Create an ITE expression tree
+        z3_expr = z3.Sum(
+            *(
+                coeff * z3.Real(base_fvar)
+                for base_fvar, coeff in var_coeff_map[tree["attribute"]].items()
+            )
+        )
+        z3_cut = z3.simplify(z3.fpToReal(z3.FPVal(tree["cut"], z3.Float64())))
+        if z3.is_true(left):
+            if z3.is_true(right):
+                return z3.BoolVal(True)
+            elif z3.is_false(right):
+                return z3_expr <= z3_cut
+        if z3.is_false(left):
+            if z3.is_true(right):
+                return z3_expr > z3_cut
+            elif z3.is_false(right):
+                return z3.BoolVal(False)
+        # else:
+        return z3.If((z3_expr <= z3_cut), left, right)
+    else:
+        raise ValueError("error parsing the json object as a binary decision tree)")
 
 
 def parse_tree_json(tree, feature_map, truth_map):
@@ -117,6 +155,8 @@ def candidate_to_conjuncts(candidate: z3.BoolRef):
                 f"Candidate formula {curr_node} should have been converted to DNF."
             )
 
+import z3
+import gurobipy as gp
 
 def z3_to_gurobi(conjunct: z3.BoolRef, model: gp.Model, var_map: dict):
     """
@@ -125,74 +165,87 @@ def z3_to_gurobi(conjunct: z3.BoolRef, model: gp.Model, var_map: dict):
     Args:
         conjunct (z3.BoolRef): A Z3 formula in conjunctive form.
         model (gp.Model): Gurobi model to which constraints will be added.
-        var_map (dict): Mapping from Z3 variables to Gurobi variables.
+        var_map (dict): Mapping from variable names (str) to Gurobi variables.
     """
+
+    def to_float(num: z3.ArithRef) -> float:
+        """Safely convert Z3 numeric constant to float."""
+        if z3.is_int_value(num):
+            return float(num.as_long())
+        if z3.is_rational_value(num):
+            return float(num.numerator_as_long()) / float(num.denominator_as_long())
+        try:
+            return float(str(num))
+        except Exception:
+            return float(num.as_decimal(6).rstrip('?'))
 
     def extract_linear_terms(expr: z3.ArithRef):
         """
         Extract linear terms from a Z3 arithmetic expression.
-
-        Args:
-            expr (z3.ArithRef): A Z3 arithmetic expression.
-        Returns:
-            dict: A mapping from Z3 variables to their coefficients.
+        Returns: (dict[var_name -> coeff], constant)
         """
-        terms = {}
         if z3.is_add(expr):
+            total_terms = {}
+            total_const = 0.0
             for child in expr.children():
-                child_terms = extract_linear_terms(child)
-                for var, coef in child_terms.items():
-                    if var in terms:
-                        terms[var] += coef
-                    else:
-                        terms[var] = coef
+                terms, const = extract_linear_terms(child)
+                total_const += const
+                for var, coef in terms.items():
+                    total_terms[var] = total_terms.get(var, 0.0) + coef
+            return total_terms, total_const
+
         elif z3.is_mul(expr):
             coeff = 1.0
-            var = None
+            var_name = None
             for child in expr.children():
-                if z3.is_int(child) or z3.is_real(child):
-                    coeff *= float(child.as_decimal(6))
+                if z3.is_int_value(child) or z3.is_rational_value(child):
+                    coeff *= to_float(child)
                 else:
-                    var = child
-            if var is not None:
-                terms[var] = coeff
-        elif z3.is_int(expr) or z3.is_real(expr):
-            terms[None] = float(expr.as_decimal(6))
+                    var_name = child.decl().name()
+            if var_name is not None:
+                return {var_name: coeff}, 0.0
+            else:
+                # Pure numeric product
+                return {}, coeff
+
+        elif z3.is_int_value(expr) or z3.is_rational_value(expr):
+            return {}, to_float(expr)
+
+        elif z3.is_var(expr) or z3.is_const(expr):
+            return {expr.decl().name(): 1.0}, 0.0
+
         else:
-            terms[expr] = 1.0
-        return terms
+            raise RuntimeError(f"Unsupported arithmetic expression: {expr}")
 
     if z3.is_true(conjunct):
-        return  # No constraints to add for true
+        return  # no constraints
 
-    if z3.is_and(conjunct):
-        clauses = conjunct.children()
-    else:
-        clauses = [conjunct]
+    clauses = conjunct.children() if z3.is_and(conjunct) else [conjunct]
 
     for clause in clauses:
-        if z3.is_le(clause):
+        if z3.is_le(clause) or z3.is_ge(clause):
             lhs, rhs = clause.children()
-            model.addConstr(
-                gp.quicksum(
-                    var_map[int(str(var))] * float(coef)
-                    for var, coef in extract_linear_terms(lhs).items()
-                )
-                <= float(rhs.as_decimal(6)),
-                name=f"z3_le_{str(clause)}",
+            lhs_terms, lhs_const = extract_linear_terms(lhs)
+            rhs_terms, rhs_const = extract_linear_terms(rhs)
+
+            # Move everything to LHS: lhs - rhs <=/>= 0
+            all_terms = lhs_terms.copy()
+            for var, coef in rhs_terms.items():
+                all_terms[var] = all_terms.get(var, 0.0) - coef
+            const_term = lhs_const - rhs_const
+
+            lhs_expr = gp.quicksum(
+                var_map[var] * coef for var, coef in all_terms.items()
             )
-        elif z3.is_ge(clause):
-            lhs, rhs = clause.children()
-            model.addConstr(
-                gp.quicksum(
-                    var_map[int(str(var))] * float(coef)
-                    for var, coef in extract_linear_terms(lhs).items()
-                )
-                >= float(rhs.as_decimal(6)),
-                name=f"z3_ge_{str(clause)}",
-            )
+
+            if z3.is_le(clause):
+                model.addConstr(lhs_expr + const_term <= 0, name=f"z3_le_{clause}")
+            else:
+                model.addConstr(lhs_expr + const_term >= 0, name=f"z3_ge_{clause}")
+
         else:
             raise RuntimeError(f"Unsupported clause type: {clause}")
+
 
 def get_maximality_cex(conjunct: z3.BoolRef, sampler: function):
     maximality_cex = {}
@@ -239,8 +292,8 @@ def get_safety_cex(conjunct: z3.BoolRef, sampler: function = None):
     safety_var_bounds = {}
     safety_model = gp.Model("safety_cex")
     safety_var_map = {
-        var: safety_model.addVar(lb=-GRB.INFINITY, name=f"var_{var}")
-        for var in CONFIG_DICT_KEYS
+        var: safety_model.addVar(lb=-CONFIG_KEY_BOUNDS[var][0], ub=CONFIG_KEY_BOUNDS[var][1], name=f"var_{var}")
+        for var in CONFIG_KEY_BOUNDS.keys()
     }
     safety_model.update()
     z3_to_gurobi(conjunct, safety_model, safety_var_map)
@@ -255,6 +308,7 @@ def get_safety_cex(conjunct: z3.BoolRef, sampler: function = None):
     for var in CONFIG_DICT_KEYS:
         lb, ub = safety_var_bounds[var]
         if sampler is not None:
+            print(f"Sampling {var} in bounds ({lb}, {ub})")
             sample = sampler(lb, ub)
         else:
             sample = (lb + ub) / 2.0
@@ -262,10 +316,59 @@ def get_safety_cex(conjunct: z3.BoolRef, sampler: function = None):
     return safety_cex
 
 
+def generate_derived_features(base_features, k=2):
+    res = []
+    for var in base_features:
+        var_coeff_map = {var: -1}
+        expr = f"(-1*{var})"
+        name = expr
+        res.append((name, (var_coeff_map, expr)))
+
+        if len(base_features) < k:
+            return res
+
+        coeff_combinations = list(
+            itertools.product([-2, -1, 1, 2], repeat=k)
+        )
+        var_id_iter = range(len(base_features))
+        for selected_var_ids in itertools.combinations(var_id_iter, k):
+            for coeff in coeff_combinations:
+                var_coeff_map = {
+                    base_features[i]: c for c, i in zip(coeff, selected_var_ids)
+                }
+                expr = " + ".join(
+                    f"({c}*{base_features[i]})" for c, i in zip(coeff, selected_var_ids)
+                )
+                name = f"({expr})"
+                res.append((name, (var_coeff_map, expr)))
+        return res
+
+
+def generate_features(base_features):
+    derived_feature_map = {}
+    for k in range(2, len(base_features) + 1):
+        print(f"Generating derived features of size {k}")
+        derived_feature_map.update(generate_derived_features(base_features, k))
+
+    var_coeff_map = {}
+
+    var_coeff_map.update([(var, {var: 1}) for var in base_features])
+    var_coeff_map.update(
+        [(var, coeff_map) for var, (coeff_map, _) in derived_feature_map.items()]
+    )
+
+    return var_coeff_map
+
+
 def get_cex_from_dtree(tree_json):
     labels = [0.0, 1.0]
     labels, feature_map, truth_map = prepare_features(labels)
-    z3_tree = parse_tree_json(tree_json["tree"], feature_map, truth_map)
+    # z3_tree = parse_tree_json(tree_json["tree"], feature_map, truth_map)
+    base_features = CONFIG_DICT_KEYS
+    feature_map = {}
+    var_coeff_map = generate_features(base_features)
+    z3_tree = parse_tree(tree_json, var_coeff_map)
+    print(f"Parsed decision tree into Z3 expression: {z3_tree}")
     conjuncts = list(candidate_to_conjuncts(z3_tree))
     cexs = []
     for conjunct in conjuncts:
@@ -280,9 +383,11 @@ def get_cex_from_dtree(tree_json):
 
 if __name__ == "__main__":
     # Example configuration
-    config = sample_config_from_space(
-        {"npc_min_starting_distance": 19, "npc_speed": 0.45}
-    )
-    output_file_path = "leaderboard/data/training/routes/Scenario4/Town01_Scenario4.xml"
-    dump_config_to_xml(config, output_file_path)
-    print(f"Configuration dumped to {output_file_path}")
+    dtree = sys.argv[1]
+    with open(dtree, "r") as f:
+        tree_json = json.load(f)
+    cexs = get_cex_from_dtree(tree_json)
+    print(cexs)
+    print(f"Extracted {len(cexs)} counterexamples from decision tree.")
+    for i, cex in enumerate(cexs):
+        print(f"Counterexample {i+1}: {cex}")

@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import pickle
 import subprocess
+import itertools
 
 CONFIG_DICT_KEYS = [
     "cloudiness",
@@ -28,16 +29,57 @@ CONFIG_KEY_BOUNDS = {
 }
 
 
-def write_features(dataset_path):
-    features = ""
-    for var in CONFIG_DICT_KEYS:
-        features += f"{var}:  continuous.\n"
-    features_path = dataset_path.split(".")[0] + ".names"
-    with open(features_path, "w") as f:
-        f.write("precondition.\n")
-        f.write(features)
-        f.write("precondition: true, false.\n")
-    print(f"Features written to {features_path}")
+def generate_derived_features(base_features, k=2):
+    res = []
+    for var in base_features:
+        var_coeff_map = {var: -1}
+        expr = f"(-1*{var})"
+        name = expr
+        res.append((name, (var_coeff_map, expr)))
+
+        if len(base_features) < k:
+            return res
+
+        coeff_combinations = list(itertools.product([-2, -1, 1, 2], repeat=k))
+        var_id_iter = range(len(base_features))
+        for selected_var_ids in itertools.combinations(var_id_iter, k):
+            for coeff in coeff_combinations:
+                var_coeff_map = {
+                    base_features[i]: c for c, i in zip(coeff, selected_var_ids)
+                }
+                expr = " + ".join(
+                    f"({c}*{base_features[i]})" for c, i in zip(coeff, selected_var_ids)
+                )
+                name = f"({expr})"
+                res.append((name, (var_coeff_map, expr)))
+        return res
+
+
+def generate_features(base_features):
+    derived_feature_map = {}
+    for k in range(2, len(base_features) + 1):
+        print(f"Generating derived features of size {k}")
+        derived_feature_map.update(generate_derived_features(base_features, k))
+
+    var_coeff_map = {}
+
+    var_coeff_map.update([(var, {var: 1}) for var in base_features])
+    var_coeff_map.update(
+        [(var, coeff_map) for var, (coeff_map, _) in derived_feature_map.items()]
+    )
+
+    return var_coeff_map
+
+
+def write_features(base_features, derived_feature_map, path):
+    file_lines = (
+        ["precondition."]
+        + [f"{var}:  continuous." for var in base_features]
+        + [f"{var} := {expr}." for var, (_, expr) in derived_feature_map.items()]
+        + ["precondition:  true, false."]
+    )
+    with open(path + ".names", "w") as f:
+        f.write("\n".join(file_lines))
 
 
 def create_config_dataset(
@@ -75,6 +117,10 @@ def create_config_dataset(
         config["label"] = "false"
         negative_configs.append(config)
 
+    # print stats about datasets
+    print(f"Number of positive configs: {len(positive_configs)}")
+    print(f"Number of negative configs: {len(negative_configs)}")
+
     dataset = positive_configs + negative_configs
     # dump to csv file
     df = pd.DataFrame(dataset)
@@ -82,9 +128,7 @@ def create_config_dataset(
     print(f"Config dataset saved to {output_path}")
 
 
-def learn_decision_tree_exact_c5(
-    dataset_path, output_path, path_to_c5="./c50exact/c5.0dbg"
-):
+def learn_decision_tree_exact_c5(dataset_path, path_to_c5="./c50exact/c5.0dbg"):
     script_path = os.path.dirname(os.path.abspath(__file__))
     path_to_c5 = os.path.abspath(os.path.join(script_path, path_to_c5))
     cmd = f"{path_to_c5} -I 1 -m 1 -f "
@@ -119,21 +163,27 @@ def learn_decision_tree_oblique(
     print(f"Decision tree saved to {output_path}")
 
 
-if __name__ == "__main__":
-    positive_dataset = "datasets/positive_datasets.pkl"
-    negative_dataset = "datasets/negative_datasets.pkl"
-    config_dataset_path = "datasets/config_dataset.data"
-    dtree_output_path = "datasets/config_dtree.json"
-
+def synthesize_dtree(datasets_path):
     create_config_dataset(
-        positive_dataset,
-        negative_dataset,
-        config_dataset_path,
+        datasets_path + "/positive_datasets.pkl",
+        datasets_path + "/negative_datasets.pkl",
+        datasets_path + "/dataset.data",
     )
-
-    write_features(config_dataset_path)
-
-    learn_decision_tree_exact_c5(
-        config_dataset_path.split(".")[0],
-        dtree_output_path,
+    write_features(
+        base_features=CONFIG_DICT_KEYS,
+        derived_feature_map=generate_features(CONFIG_DICT_KEYS),
+        path=datasets_path + "/dataset",
     )
+    learn_decision_tree_exact_c5(datasets_path + "/dataset")
+    print(f"Decision tree synthesized at {datasets_path}/dataset.json")
+    return datasets_path + "/dataset.json"
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python synthesize_dtree.py <datasets_path> ")
+        sys.exit(1)
+
+    datasets_path = sys.argv[1]
+    dtree_path = synthesize_dtree(datasets_path)
+    print(f"Decision tree synthesized at {dtree_path}")
