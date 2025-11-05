@@ -8,6 +8,8 @@ from gurobipy import GRB
 import json
 from typing import Callable as function
 import itertools
+from learner import DTreeLearner
+from configtester import ConfigTester
 
 CONFIG_EPSILONS = {
     "cloudiness": 0.5,
@@ -23,8 +25,8 @@ PLUS_INF = 1e10
 
 
 class DTreeTester:
-    def __init__(self, dtree: z3.BoolRef):
-        self.dtree = dtree
+    def __init__(self):
+        pass
 
     def candidate_to_conjuncts(self, candidate: z3.BoolRef):
         init_path = [candidate]
@@ -71,9 +73,11 @@ class DTreeTester:
                 )
 
     def z3_to_gurobi(self, conjunct: z3.BoolRef, model: gp.Model, var_map: dict):
+        """
+        Each clause must be a linear comparison (<=, >=, <, >, =).
+        """
 
         def to_float(num: z3.ArithRef) -> float:
-            """Safely convert Z3 numeric constant to float."""
             if z3.is_int_value(num):
                 return float(num.as_long())
             if z3.is_rational_value(num):
@@ -81,81 +85,109 @@ class DTreeTester:
             try:
                 return float(str(num))
             except Exception:
-                return float(num.as_decimal(6).rstrip("?"))
+                return float(num.as_decimal(10).rstrip("?"))
 
-        def extract_linear_terms(expr: z3.ArithRef):
-            """
-            Extract linear terms from a Z3 arithmetic expression.
-            Returns: (dict[var_name -> coeff], constant)
-            """
+        def encode_expr(expr: z3.ArithRef):
             if z3.is_add(expr):
-                total_terms = {}
-                total_const = 0.0
-                for child in expr.children():
-                    terms, const = extract_linear_terms(child)
-                    total_const += const
-                    for var, coef in terms.items():
-                        total_terms[var] = total_terms.get(var, 0.0) + coef
-                return total_terms, total_const
+                return gp.quicksum(encode_expr(c) for c in expr.children())
+
+            elif z3.is_sub(expr):
+                a, b = expr.children()
+                return encode_expr(a) - encode_expr(b)
 
             elif z3.is_mul(expr):
-                coeff = 1.0
-                var_name = None
-                for child in expr.children():
-                    if z3.is_int_value(child) or z3.is_rational_value(child):
-                        coeff *= to_float(child)
-                    else:
-                        var_name = child.decl().name()
-                if var_name is not None:
-                    return {var_name: coeff}, 0.0
+                a, b = expr.children()
+                # Only one term can be numeric in linear exprs
+                if z3.is_int_value(a) or z3.is_rational_value(a):
+                    return to_float(a) * encode_expr(b)
+                elif z3.is_int_value(b) or z3.is_rational_value(b):
+                    return to_float(b) * encode_expr(a)
                 else:
-                    # Pure numeric product
-                    return {}, coeff
+                    raise RuntimeError(f"Nonlinear term {expr}")
+
+            elif z3.is_const(expr):
+                name = expr.decl().name()
+                if name in var_map:
+                    return var_map[name]
+                else:
+                    # a numeric constant disguised as const
+                    return to_float(expr)
 
             elif z3.is_int_value(expr) or z3.is_rational_value(expr):
-                return {}, to_float(expr)
-
-            elif z3.is_var(expr) or z3.is_const(expr):
-                return {expr.decl().name(): 1.0}, 0.0
+                return to_float(expr)
 
             else:
-                raise RuntimeError(f"Unsupported arithmetic expression: {expr}")
+                raise RuntimeError(f"Unsupported arithmetic expr: {expr}")
 
-        if z3.is_true(conjunct):
-            return  # no constraints
-
-        clauses = conjunct.children() if z3.is_and(conjunct) else [conjunct]
-
-        for clause in clauses:
-            if z3.is_le(clause) or z3.is_ge(clause):
+        def encode_clause(clause: z3.BoolRef):
+            """Encode one linear comparison."""
+            if (
+                z3.is_le(clause)
+                or z3.is_lt(clause)
+                or z3.is_ge(clause)
+                or z3.is_gt(clause)
+                or z3.is_eq(clause)
+            ):
                 lhs, rhs = clause.children()
-                lhs_terms, lhs_const = extract_linear_terms(lhs)
-                rhs_terms, rhs_const = extract_linear_terms(rhs)
-
-                # Move everything to LHS: lhs - rhs <=/>= 0
-                all_terms = lhs_terms.copy()
-                for var, coef in rhs_terms.items():
-                    all_terms[var] = all_terms.get(var, 0.0) - coef
-                const_term = lhs_const - rhs_const
-
-                lhs_expr = gp.quicksum(
-                    var_map[var] * coef for var, coef in all_terms.items()
-                )
+                lhs_expr = encode_expr(lhs)
+                rhs_expr = encode_expr(rhs)
+                eps = 1e-6  # for strict inequalities
 
                 if z3.is_le(clause):
-                    model.addConstr(lhs_expr + const_term <= 0, name=f"z3_le_{clause}")
-                else:
-                    model.addConstr(lhs_expr + const_term >= 0, name=f"z3_ge_{clause}")
-
+                    model.addConstr(lhs_expr <= rhs_expr, name=f"le_{lhs}_{rhs}")
+                elif z3.is_lt(clause):
+                    model.addConstr(lhs_expr <= rhs_expr - eps, name=f"lt_{lhs}_{rhs}")
+                elif z3.is_ge(clause):
+                    model.addConstr(lhs_expr >= rhs_expr, name=f"ge_{lhs}_{rhs}")
+                elif z3.is_gt(clause):
+                    model.addConstr(lhs_expr >= rhs_expr + eps, name=f"gt_{lhs}_{rhs}")
+                elif z3.is_eq(clause):
+                    model.addConstr(lhs_expr == rhs_expr, name=f"eq_{lhs}_{rhs}")
+            elif z3.is_and(clause):
+                for child in clause.children():
+                    encode_clause(child)
             else:
-                raise RuntimeError(f"Unsupported clause type: {clause}")
+                raise RuntimeError(f"Unsupported clause: {clause}")
+
+        # Start encoding
+        if z3.is_true(conjunct):
+            return
+        elif z3.is_false(conjunct):
+            # infeasible path, skip
+            model.addConstr(1 == 0)
+            return
+        elif z3.is_and(conjunct):
+            for c in conjunct.children():
+                encode_clause(c)
+        else:
+            encode_clause(conjunct)
+
+        # dump model to file for debugging
+        model.write("gurobi_model.lp")
+
+    def compute_feasible_bounds(self, model, var_map):
+        bounds = {}
+        model.setParam("OutputFlag", 0)
+        for name, var in var_map.items():
+            # minimize var
+            model.setObjective(var, GRB.MINIMIZE)
+            model.optimize()
+            lb = var.X if model.status == GRB.OPTIMAL else None
+
+            # maximize var
+            model.setObjective(var, GRB.MAXIMIZE)
+            model.optimize()
+            ub = var.X if model.status == GRB.OPTIMAL else None
+
+            bounds[name] = (lb, ub)
+        return bounds
 
     def get_maximality_cex(self, conjunct: z3.BoolRef, sampler: function):
         maximality_cex = {}
         maximality_var_bounds = {}
         maximality_model = gp.Model("maximality_cex")
         maximality_var_map = {
-            var: maximality_model.addVar(lb=-GRB.INFINITY, name=f"var_{var}")
+            var: maximality_model.addVar(lb=-GRB.INFINITY, name=var)
             for var in CONFIG_DICT_KEYS
         }
         maximality_model.update()
@@ -178,23 +210,38 @@ class DTreeTester:
                     maximality_var_map[var].LB,
                     maximality_var_map[var].UB,
                 )
+        maximality_var_bounds = self.compute_feasible_bounds(
+            maximality_model, maximality_var_map
+        )
         for var in CONFIG_DICT_KEYS:
-            lb, ub = var_bounds[var]
-            epsilon = CONFIG_EPSILONS.get(var, 0.5)
-            maximality_var_bounds[var] = (
-                max(lb - epsilon, CONFIG_KEY_BOUNDS[var][0]),
-                min(ub + epsilon, CONFIG_KEY_BOUNDS[var][1]),
-            )
-            if maximality_var_bounds[var][0] > maximality_var_bounds[var][1]:
-                return None
-        for var in CONFIG_DICT_KEYS:
-            sample = sampler(
-                maximality_var_bounds[var][0], maximality_var_bounds[var][1]
-            )
+            # flip a coin for upper or lower bound sampling
+            sample = None
+            if np.random.rand() < 0.5:
+                sample = sampler(
+                    max(
+                        maximality_var_bounds[var][0] - CONFIG_EPSILONS[var],
+                        CONFIG_KEY_BOUNDS[var][0],
+                    ),
+                    maximality_var_bounds[var][0] + CONFIG_EPSILONS[var],
+                )
+            else:
+                sample = sampler(
+                    maximality_var_bounds[var][1] - CONFIG_EPSILONS[var],
+                    min(
+                        maximality_var_bounds[var][1] + CONFIG_EPSILONS[var],
+                        CONFIG_KEY_BOUNDS[var][1],
+                    ),
+                )
             maximality_cex[var] = sample
-        return maximality_cex
+        in_dtree = True
+        for var in CONFIG_DICT_KEYS:
+            lb, ub = maximality_var_bounds[var]
+            if (maximality_cex[var] < lb) or (maximality_cex[var] > ub):
+                in_dtree = False
+                break
+        return (maximality_cex, in_dtree)
 
-    def get_safety_cex(conjunct: z3.BoolRef, sampler: function = None):
+    def get_safety_cex(self, conjunct: z3.BoolRef, sampler: function = None):
         safety_cex = {}
         safety_var_bounds = {}
         safety_model = gp.Model("safety_cex")
@@ -202,7 +249,7 @@ class DTreeTester:
             var: safety_model.addVar(
                 lb=-CONFIG_KEY_BOUNDS[var][0],
                 ub=CONFIG_KEY_BOUNDS[var][1],
-                name=f"var_{var}",
+                name=var,
             )
             for var in CONFIG_KEY_BOUNDS.keys()
         }
@@ -219,6 +266,7 @@ class DTreeTester:
                 )
         else:
             return None
+        safety_var_bounds = self.compute_feasible_bounds(safety_model, safety_var_map)
         for var in CONFIG_DICT_KEYS:
             lb, ub = safety_var_bounds[var]
             if sampler is not None:
@@ -229,6 +277,38 @@ class DTreeTester:
             safety_cex[var] = sample
         return safety_cex
 
+
 if __name__ == "__main__":
     # Example usage
-    pass
+    dataset_path = sys.argv[1]
+    dtree_learner = DTreeLearner(base_features=CONFIG_DICT_KEYS)
+    dtree = dtree_learner.learn(dataset_path)
+    dtree_tester = DTreeTester(dtree)
+    print("DTree Tester initialized.")
+    conjuncts = list(dtree_tester.candidate_to_conjuncts(dtree))
+    print(f"Extracted {len(conjuncts)} conjuncts from the decision tree.")
+    counterexamples = []
+    for i, conjunct in enumerate(conjuncts):
+        print(f"Conjunct {i+1}: {conjunct}")
+        maximality_cex, in_dtree = dtree_tester.get_maximality_cex(
+            conjunct, sampler=np.random.uniform
+        )
+        if maximality_cex is not None:
+            print(f"Maximality counterexample: {maximality_cex}")
+            counterexamples.append(maximality_cex)
+        else:
+            print("No maximality counterexample found.")
+        safety_cex = dtree_tester.get_safety_cex(conjunct, sampler=np.random.uniform)
+        if safety_cex is not None:
+            print(f"Safety counterexample: {safety_cex}")
+            counterexamples.append(safety_cex)
+        else:
+            print("No safety counterexample found.")
+    configtester = ConfigTester()
+    for i, cex in enumerate(counterexamples):
+        print(f"Testing counterexample {i+1}: {cex}")
+        success, dataset = configtester.test_config(cex)
+        if success:
+            print(f"Counterexample {i+1} succeeded with dataset.")
+        else:
+            print(f"Counterexample {i+1} failed or did not run the simulation.")

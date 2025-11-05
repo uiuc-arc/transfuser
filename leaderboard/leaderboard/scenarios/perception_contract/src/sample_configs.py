@@ -68,6 +68,51 @@ def sample_config_from_space(fixed_config=None, config_space=None):
     return config
 
 
+def add_defaults_to_config(config):
+    """
+    Adds default values to a configuration dictionary if certain keys are missing.
+
+    Args:
+        config (dict): Configuration dictionary.
+    Returns:
+        dict: Configuration dictionary with defaults added.
+    """
+    if "waypoints" not in config:
+        config["waypoints"] = [
+            {
+                "x": 120.212006,
+                "y": 59.523838,
+                "z": 0.033585,
+                "pitch": -0.019200,
+                "roll": 0.000290,
+                "yaw": 0.301839,
+            },
+            {
+                "x": 158.060257,
+                "y": 16.202417,
+                "z": 0.0,
+                "pitch": 0.0,
+                "roll": 0.0,
+                "yaw": 270.069580,
+            },
+        ]
+    if "weather" not in config:
+        config["weather"] = {
+            "cloudiness": 0,
+            "precipitation": 0,
+            "precipitation_deposits": 0,
+            "wind_intensity": 0,
+            "sun_azimuth_angle": 0,
+            "sun_altitude_angle": 45,
+        }
+    if "other_config" not in config:
+        config["other_config"] = {
+            "npc_speed": 1.0,
+            "npc_min_starting_distance": 15,
+        }
+    return config
+
+
 def dump_config_to_xml(config, file_path):
     """
     Dumps a configuration dictionary to an XML file.
@@ -91,6 +136,7 @@ def dump_config_to_xml(config, file_path):
     xml_string += route_begin.format(
         id=config.get("id", 0), town=config.get("town", "Town01")
     )
+    config = add_defaults_to_config(config)
     for waypoint in config["waypoints"]:
         xml_string += waypoint_template.format(
             x=waypoint["x"],
