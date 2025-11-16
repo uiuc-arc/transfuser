@@ -2,7 +2,12 @@ import os
 import json
 from sample_configs import sample_config_from_space
 import pickle
-from learner import CONFIG_DICT_KEYS, DTreeLearner, CONFIG_KEY_BOUNDS
+from learner import (
+    WEATHER_CONFIG_DICT_KEYS,
+    DTreeLearner,
+    CONFIG_KEY_BOUNDS,
+    NPC_CONFIG_DICT_KEYS,
+)
 from tester import DTreeTester
 from configtester import ConfigTester
 import numpy as np
@@ -14,7 +19,7 @@ class SOCFinder:
     def __init__(self, config_space, dataset_dir="dataset"):
         self.config_space = config_space
         self.configtester = ConfigTester()
-        self.learner = DTreeLearner(base_features=self.config_space.keys())
+        self.learner = DTreeLearner(base_features=list(self.config_space.keys()))
         self.tester = DTreeTester()
         self.dataset_dir = dataset_dir
         if not os.path.exists(self.dataset_dir):
@@ -42,12 +47,16 @@ class SOCFinder:
         with open(path, "w") as f:
             for config in positive_configs:
                 line = ",".join(
-                    [str(config[key]) for key in CONFIG_DICT_KEYS] + ["true"]
+                    [str(config["weather"][key]) for key in WEATHER_CONFIG_DICT_KEYS]
+                    + [str(config["other_config"][key]) for key in NPC_CONFIG_DICT_KEYS]
+                    + ["true"]
                 )
                 f.write(line + "\n")
             for config in negative_configs:
                 line = ",".join(
-                    [str(config[key]) for key in CONFIG_DICT_KEYS] + ["false"]
+                    [str(config["weather"][key]) for key in WEATHER_CONFIG_DICT_KEYS]
+                    + [str(config["other_config"][key]) for key in NPC_CONFIG_DICT_KEYS]
+                    + ["false"]
                 )
                 f.write(line + "\n")
         print(f"Dataset saved to {path}")
@@ -55,7 +64,7 @@ class SOCFinder:
     def learner_tester_loop(self, num_iterations=100):
         iters = 0
         stopping_criteria_met = False
-        dataset_path = os.path.join(self.dataset_dir, "dataset.data")
+        dataset_path = os.path.join(self.dataset_dir, "dataset")
         while iters < num_iterations and not stopping_criteria_met:
             iters += 1
             print(f"Starting iteration {iters+1}/{num_iterations}")
@@ -74,6 +83,7 @@ class SOCFinder:
                 success, dataset = self.configtester.test_config(maximality_cex)
                 if not in_dtree and success:
                     print(f"Found positive counterexample: {maximality_cex}")
+                    # recheck if in dtree already
                     cexs.append((maximality_cex, success))
                 elif in_dtree and not success and dataset is not None:
                     print(f"Found negative counterexample: {maximality_cex}")
@@ -103,7 +113,16 @@ class SOCFinder:
                     for cex, success in cexs:
                         label = "true" if success else "false"
                         string = (
-                            ",".join([str(cex[key]) for key in CONFIG_DICT_KEYS])
+                            ",".join(
+                                [
+                                    str(cex["weather"][key])
+                                    for key in WEATHER_CONFIG_DICT_KEYS
+                                ]
+                                + [
+                                    str(cex["other_config"][key])
+                                    for key in NPC_CONFIG_DICT_KEYS
+                                ]
+                            )
                             + f",{label}\n"
                         )
                         if string.strip() not in existing_points:
@@ -116,8 +135,8 @@ class SOCFinder:
 
 
 if __name__ == "__main__":
-    num_iterations = sys.argv[1] if len(sys.argv) > 1 else 5
-    num_seed_configs = sys.argv[2] if len(sys.argv) > 2 else 2
+    num_iterations = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+    num_seed_configs = int(sys.argv[2]) if len(sys.argv) > 2 else 2
     default_data_dir = "expts/expt_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     dataset_dir = sys.argv[3] if len(sys.argv) > 3 else default_data_dir
     runner = SOCFinder(config_space=CONFIG_KEY_BOUNDS, dataset_dir=dataset_dir)

@@ -176,6 +176,7 @@ class ScenarioManager(object):
         # Use the callback_id inside the signal handler to allow external interrupts
         signal.signal(signal.SIGINT, self.signal_handler)
         self.dataset = []
+        self.dataset_path = "datasets_v1/dataset.json"
 
     def signal_handler(self, signum, frame):
         """
@@ -387,7 +388,7 @@ class ScenarioManager(object):
         """
         return self._watchdog.get_status()
 
-    def stop_scenario(self, config=None):
+    def stop_scenario(self, config=None, dataset_path=None):
         """
         This function triggers a proper termination of a scenario
         """
@@ -399,14 +400,15 @@ class ScenarioManager(object):
         self.scenario_duration_system = self.end_system_time - self.start_system_time
         self.scenario_duration_game = self.end_game_time - self.start_game_time
 
-        current_dataset = None
-        if os.path.exists("datasets_v1") is False:
-            os.makedirs("datasets_v1")
+        dataset_dir = os.path.dirname(dataset_path) if dataset_path is not None else "datasets_v1"
+        if os.path.exists(dataset_dir) is False:
+            os.makedirs(dataset_dir)
 
         # if current_dataset is not None:
         #     self.dataset = current_dataset + self.dataset
 
-        with open("datasets_v1/dataset_velocity_0.5.json", "w") as f:
+        dataset_path = dataset_path if dataset_path is not None else self.dataset_path
+        with open(dataset_path, "w") as f:
             weather_params = {
                 k: config.weather.__getattribute__(k)
                 for k in dir(config.weather)
@@ -422,7 +424,12 @@ class ScenarioManager(object):
                     "npc_min_starting_distance"
                 ],
             }
-            dump = {"config": config, "data": self.dataset}
+            label = True
+            criteria = self.scenario.get_criteria()
+            for criterion in criteria:
+                if criterion.name == "CollisionTest" and criterion.actual_value != 0:
+                    label = False
+            dump = {"config": config, "data": self.dataset, "label": label}
             json.dump(dump, f, indent=2)
 
         if self.get_running_status():

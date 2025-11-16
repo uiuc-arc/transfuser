@@ -7,15 +7,18 @@ import numpy as np
 import pickle
 import os
 
-CONFIG_DICT_KEYS = [
+WEATHER_CONFIG_DICT_KEYS = [
     "cloudiness",
     "precipitation",
     "precipitation_deposits",
     "wind_intensity",
     "sun_azimuth_angle",
     "sun_altitude_angle",
+]
+NPC_CONFIG_DICT_KEYS = [
     "npc_speed",
 ]
+
 CONFIG_KEY_BOUNDS = {
     "cloudiness": (0.0, 100.0),
     "precipitation": (0.0, 100.0),
@@ -179,10 +182,10 @@ class DTreeLearner:
         for config_d, dataset in positive_datasets:
             config = {}
             for c in config_d["weather"]:
-                if c in CONFIG_DICT_KEYS:
+                if c in WEATHER_CONFIG_DICT_KEYS:
                     config[c] = config_d["weather"][c]
             for c in config_d.get("other_config", {}):
-                if c in CONFIG_DICT_KEYS:
+                if c in WEATHER_CONFIG_DICT_KEYS:
                     config[c] = config_d["other_config"][c]
             config["label"] = "true"
             positive_configs.append(config)
@@ -191,10 +194,10 @@ class DTreeLearner:
         for config_d, dataset in negative_datasets:
             config = {}
             for c in config_d["weather"]:
-                if c in CONFIG_DICT_KEYS:
+                if c in WEATHER_CONFIG_DICT_KEYS:
                     config[c] = config_d["weather"][c]
             for c in config_d.get("other_config", {}):
-                if c in CONFIG_DICT_KEYS:
+                if c in WEATHER_CONFIG_DICT_KEYS:
                     config[c] = config_d["other_config"][c]
             config["label"] = "false"
             negative_configs.append(config)
@@ -212,7 +215,7 @@ class DTreeLearner:
 
 if __name__ == "__main__":
     learner = DTreeLearner(
-        base_features=CONFIG_DICT_KEYS,
+        base_features=WEATHER_CONFIG_DICT_KEYS,
     )
     tree = learner.learn("datasets/dataset")
     print(tree)

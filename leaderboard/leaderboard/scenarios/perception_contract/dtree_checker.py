@@ -10,6 +10,7 @@ from pysmt.fnode import FNode
 
 SMT2_CHECK_CODE = "\n(set-option :pp.decimal true)\n(set-option :pp.decimal_precision 10)\n(check-sat)\n(get-model)\n"
 
+
 class DTreeChecker:
     def __init__(self, npc_speeds: List[float] = [2.0, 15.0]):
         # Taken from TransFuser codebase and checked with CARLA
@@ -38,9 +39,7 @@ class DTreeChecker:
 
     @staticmethod
     def _to_real(v: float) -> z3.RatNumRef:
-        return z3.simplify(
-            z3.fpToReal(z3.FPVal(v, z3.Float64()))
-        )
+        return z3.simplify(z3.fpToReal(z3.FPVal(v, z3.Float64())))
 
     @staticmethod
     def _remove_qn_marks(s: str) -> str:
@@ -251,7 +250,7 @@ class DTreeChecker:
                     self.is_in_ego_actor(
                         x, y, [x_pred[i], y_pred[i], sin_yaw_pred[i], cos_yaw_pred[i]]
                     ),
-                    self.is_in_npc(x, y, s, t + ((i+1) / self.fps)),
+                    self.is_in_npc(x, y, s, t + ((i + 1) / self.fps)),
                 )
             )
 
@@ -320,7 +319,7 @@ class DTreeChecker:
         current_formula = solver.sexpr()
         current_formula += SMT2_CHECK_CODE
         model = None
-        with tempfile.NamedTemporaryFile(mode='w+t', suffix=".smt2") as f:
+        with tempfile.NamedTemporaryFile(mode="w+t", suffix=".smt2") as f:
             f.write(current_formula)
             f.flush()
             f.seek(0)
@@ -343,7 +342,7 @@ class DTreeChecker:
                 model_string = DTreeChecker._remove_qn_marks(model_string)
                 model_string = model_string.strip(" ").strip("\n")
                 print("Model string:", model_string)
-                with tempfile.NamedTemporaryFile(mode='w+t', suffix=".smt2") as f1:
+                with tempfile.NamedTemporaryFile(mode="w+t", suffix=".smt2") as f1:
                     if model_string:
                         f1.write(model_string)
                         f1.flush()
@@ -363,7 +362,7 @@ class DTreeChecker:
                             datapoint.append(new_model[f"cos_yaw_{i}"])
 
                         return datapoint
-                
+
             return []
 
     def is_cex_pred(self, cex, pred_len: int = 2) -> z3.BoolRef:
@@ -390,7 +389,7 @@ class DTreeChecker:
             cex_map.append((z3.Real(f"cos_yaw_{i}"), cex[4 + i * 4]))
         return cex_map
 
-    def is_valid_cex(self, conjunct, cex, pred_len:int = 2) -> bool:
+    def is_valid_cex(self, conjunct, cex, pred_len: int = 2) -> bool:
         """
         Check if the given counterexample is valid.
         Args:
@@ -400,9 +399,7 @@ class DTreeChecker:
         """
         cex_map = self.is_cex_pred(cex, pred_len)
 
-        val = z3.simplify(
-            z3.substitute(conjunct, *cex_map)
-        )
+        val = z3.simplify(z3.substitute(conjunct, *cex_map))
         if not z3.is_bool(val):
             raise ValueError("Conjunct must be a boolean expression.")
         if z3.is_true(val):
@@ -543,7 +540,7 @@ class SeparatorDTreeChecker(DTreeChecker):
         current_formula = solver.sexpr()
         current_formula += SMT2_CHECK_CODE
         model = None
-        with tempfile.NamedTemporaryFile(mode='w+t', suffix=".smt2") as f:
+        with tempfile.NamedTemporaryFile(mode="w+t", suffix=".smt2") as f:
             f.write(current_formula)
             f.flush()
             f.seek(0)
@@ -566,7 +563,7 @@ class SeparatorDTreeChecker(DTreeChecker):
                 model_string = DTreeChecker._remove_qn_marks(model_string)
                 model_string = model_string.strip(" ").strip("\n")
                 print("Model string:", model_string)
-                with tempfile.NamedTemporaryFile(mode='w+t', suffix=".smt2") as f1:
+                with tempfile.NamedTemporaryFile(mode="w+t", suffix=".smt2") as f1:
                     if model_string:
                         f1.write(model_string)
                         f1.flush()
@@ -583,16 +580,21 @@ class SeparatorDTreeChecker(DTreeChecker):
                             self.current_time - self.scenario_start_time, 0
                         )
                         for vertex in self.npc_starting:
-                            npc_x = vertex[0] + self.npc_forward[0] * new_model["s"] * effective_time
-                            npc_y = vertex[1] + self.npc_forward[1] * new_model["s"] * effective_time
+                            npc_x = (
+                                vertex[0]
+                                + self.npc_forward[0] * new_model["s"] * effective_time
+                            )
+                            npc_y = (
+                                vertex[1]
+                                + self.npc_forward[1] * new_model["s"] * effective_time
+                            )
                             datapoint.append((npc_x, npc_y))
-
 
                         return datapoint
             return []
 
     def _contains_unsafe_points(self, conjunct):
-        
+
         x = z3.Real("x")
         y = z3.Real("y")
         s = z3.Real("s")
@@ -615,6 +617,7 @@ class SeparatorDTreeChecker(DTreeChecker):
         preds.append(is_in_npc)
 
         return z3.And(*preds)
+
 
 if __name__ == "__main__":
     checker = DTreeChecker()

@@ -378,7 +378,7 @@ class LeaderboardEvaluator(object):
         # Stop the scenario
         try:
             print("\033[1m> Stopping the route\033[0m")
-            self.manager.stop_scenario(config)
+            self.manager.stop_scenario(config, args.dataset_path)
             self._register_statistics(config, args.checkpoint, entry_status, crash_message)
 
             if args.record:
@@ -478,6 +478,9 @@ def main():
     parser.add_argument("--checkpoint", type=str,
                         default='./simulation_results.json',
                         help="Path to checkpoint used for saving statistics and resuming")
+    parser.add_argument('--dataset-path', type=str,
+                        default='./dataset.json',
+                        help="Path to dataset used for saving scenario data")
 
     arguments = parser.parse_args()
 

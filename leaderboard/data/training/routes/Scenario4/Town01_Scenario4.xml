@@ -3,7 +3,7 @@
   <route id="0" town="Town01">
     <waypoint x="120.212006" y="59.523838" z="0.033585" pitch="-0.0192" roll="0.00029" yaw="0.301839"/>
     <waypoint x="158.060257" y="16.202417" z="0.0" pitch="0.0" roll="0.0" yaw="270.06958"/>
-  <weather cloudiness="97" precipitation="95" precipitation_deposits="62" wind_intensity="4" sun_azimuth_angle="350" sun_altitude_angle="-13" />
-  <other_config npc_speed="2.0" npc_min_starting_distance="19" />
+  <weather cloudiness="0" precipitation="0" precipitation_deposits="0" wind_intensity="0" sun_azimuth_angle="0" sun_altitude_angle="45" />
+  <other_config npc_speed="1.0" npc_min_starting_distance="15" />
   </route>
 </routes>
